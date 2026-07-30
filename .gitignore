@@ -5,6 +5,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 *.egg-info/
+.coverage
 
 # Node
 node_modules/
@@ -18,6 +19,10 @@ frontend/dist/
 # DB
 *.db
 *.sqlite3
+
+# Ralph scratch state (per-phase PRD/progress, superseded by PROGRESS.md)
+/prd.json
+/progress.txt
 
 # OS
 .DS_Store
