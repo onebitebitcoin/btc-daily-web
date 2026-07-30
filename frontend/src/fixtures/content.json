@@ -1,0 +1,328 @@
+{
+  "meta": {
+    "title": "비트코인 하이라이트 · 7.30",
+    "slug": "btc-daily-0730",
+    "date": "2026-07-30"
+  },
+  "theme": {
+    "bg": "#181410",
+    "bg2": "#211a13",
+    "bg_light": "#e8e0d4",
+    "bg2_light": "#dcd2c1",
+    "paper": "#f4efe4",
+    "paper2": "#e9e2d2",
+    "ink": "#201c14",
+    "ink_dim": "#6b6354",
+    "accent": "#f2a93b",
+    "accent_strong": "#ffcf7f",
+    "glow": "rgba(242,169,59,0.20)",
+    "accent2": "#d95f4a",
+    "accent2_light": "#b84a37",
+    "line": "#cabfa5",
+    "chip_bg": "rgba(32,28,20,0.05)",
+    "seg_off": "rgba(255,255,255,0.14)"
+  },
+  "brand": "BTC DAILY",
+  "cover": {
+    "eyebrow": "24H BTC DIGEST",
+    "mark": [
+      "비트코인",
+      "하이라이트"
+    ],
+    "meta": [
+      "최근 24시간 수집",
+      "뉴스 + 유튜브",
+      "2026.07.30"
+    ],
+    "hint": "옆으로 넘겨서 오늘의 BTC 이슈 10건 보기"
+  },
+  "cards": [
+    {
+      "num": 1,
+      "chip": {
+        "text": "시황",
+        "emphasis": "primary"
+      },
+      "title": "연준 금리 동결에도 비트코인은 밀렸다",
+      "subtitle": "Fed Holds, BTC Slides",
+      "chips_label": "TAGS",
+      "chips": [
+        "#비트코인",
+        "#연준",
+        "#중동긴장"
+      ],
+      "body": "연준이 기준금리를 동결했지만 비트코인은 호재를 삼키지 못했다. 이란의 미군 기지 미사일 공격으로 중동 긴장이 고조되고 유가가 8% 급등하자 비트코인은 6만4000달러선을 반납하고 6만3500달러대까지 밀렸다. 이더리움을 포함한 알트코인 낙폭은 더 컸다.",
+      "quote": "금리는 멈췄는데, 시장은 안 멈췄다.",
+      "link": {
+        "label": "블록미디어 원문",
+        "href": "https://www.blockmedia.co.kr/archives/1122156?utm_source=general&utm_medium=rss"
+      },
+      "media": {
+        "image": "fed-macro",
+        "href": null,
+        "cta": null
+      }
+    },
+    {
+      "num": 2,
+      "chip": {
+        "text": "온체인",
+        "emphasis": "secondary"
+      },
+      "title": "6만4000달러 지지선, 매수 동력이 한꺼번에 멈췄다",
+      "subtitle": "Demand Stall",
+      "chips_label": "TAGS",
+      "chips": [
+        "#비트코인",
+        "#ETF",
+        "#지지선"
+      ],
+      "body": "비트코인의 6만4000달러 지지선을 떠받치던 세 축 — ETF 자금, 선물 매수, 온체인 자본 유입 — 이 동시에 정체됐다. ETF에서는 자금이 빠져나가고 선물 매수세는 둔화됐으며 온체인 신규 자본 유입도 멎었다. 결국 지지선을 지키는 건 장기 보유자들만 남았다는 분석이다.",
+      "quote": "받쳐주던 세 다리가 한꺼번에 풀렸다.",
+      "link": {
+        "label": "CryptoSlate 원문",
+        "href": "https://cryptoslate.com/three-key-demand-drivers-stall-at-once-leaving-bitcoins-64000-support-to-long-term-holders/"
+      },
+      "media": {
+        "image": "demand-stall",
+        "href": null,
+        "cta": null
+      }
+    },
+    {
+      "num": 3,
+      "chip": {
+        "text": "레버리지",
+        "emphasis": null
+      },
+      "title": "7억 달러 청산 — 롱 베팅이 무너졌다",
+      "subtitle": "$700M Liquidation",
+      "chips_label": "TAGS",
+      "chips": [
+        "#비트코인",
+        "#레버리지청산",
+        "#롱베팅"
+      ],
+      "body": "암호화폐 시장에서 하루 만에 7억 달러 규모의 레버리지 포지션이 청산됐다. 청산 직전 롱 포지션 비중이 62%까지 쏠렸던 과열 베팅이 무너진 결과다. 이 와중에도 비트코인의 시장 점유율은 오히려 올랐다.",
+      "quote": "몰빵한 쪽이 먼저 터졌다.",
+      "link": {
+        "label": "TokenPost 원문",
+        "href": "https://www.tokenpost.kr/news/insights/382774"
+      },
+      "media": {
+        "image": "liquidation",
+        "href": null,
+        "cta": null
+      }
+    },
+    {
+      "num": 4,
+      "chip": {
+        "text": "채굴",
+        "emphasis": "primary"
+      },
+      "title": "채굴업계, AI로 갈아타는 중 — \"1년 뒤 후회할 수도\"",
+      "subtitle": "Miners Pivot to AI",
+      "chips_label": "TAGS",
+      "chips": [
+        "#비트코인채굴",
+        "#AI전환",
+        "#데이터센터"
+      ],
+      "body": "비트코인 채굴업체들이 잇달아 데이터센터를 AI 호스팅용으로 전환하고 있다. 코어 사이언티픽은 채굴 수익이 56% 줄었지만 AI 호스팅 전환으로 8000만 달러 이익을 냈다. 다만 과잉 투자로 전환할 경우 비트코인 가격이 회복될 때 되돌릴 선택권을 잃을 수 있다는 경고도 함께 나온다.",
+      "quote": "지금은 맞는 것 같은 선택, 1년 뒤엔?",
+      "link": {
+        "label": "CryptoSlate 원문",
+        "href": "https://cryptoslate.com/bitcoin-miners-pour-billions-into-ai-but-the-pivot-could-leave-them-regretting-it-within-a-year/"
+      },
+      "media": {
+        "image": "miners-ai",
+        "href": null,
+        "cta": null
+      }
+    },
+    {
+      "num": 5,
+      "chip": {
+        "text": "기관",
+        "emphasis": null
+      },
+      "title": "\"공짜 수익의 시대는 끝났다\" — 신임 CEO의 경고",
+      "subtitle": "Treasury Arbitrage Fading",
+      "chips_label": "TAGS",
+      "chips": [
+        "#비트코인",
+        "#기관투자",
+        "#트레저리전략"
+      ],
+      "body": "비트코인 재무 전략으로 차익거래 수익을 노리던 '트레저리 플레이북' 시대가 저물고 있다는 경고가 나왔다. 트웬티원 캐피탈의 신임 CEO는 이제 채굴처럼 실제 현금을 창출하는 사업이 더 나은 위험 조정 수익을 줄 수 있다고 밝혔다.",
+      "quote": "공짜 점심은 없다, 비트코인도 예외가 아니다.",
+      "link": {
+        "label": "CryptoSlate 원문",
+        "href": "https://cryptoslate.com/theres-no-free-money-forever-twenty-one-capitals-new-ceo-warns-the-bitcoin-treasury-playbook-is-dying/"
+      },
+      "media": {
+        "image": "treasury-warn",
+        "href": null,
+        "cta": null
+      }
+    },
+    {
+      "num": 6,
+      "chip": {
+        "text": "MSTR",
+        "emphasis": "secondary"
+      },
+      "title": "110억 달러 손실에도 \"연 42% 수익\" — 근데 두 달새 66%↓",
+      "subtitle": "Strategy's Mixed Signals",
+      "chips_label": "TAGS",
+      "chips": [
+        "#MSTR",
+        "#스트래티지",
+        "#마이클세일러"
+      ],
+      "body": "스트래티지(옛 마이크로스트래티지)는 110억 달러 규모의 평가손실에도 비트코인 전환 이후 연평균 42% 수익률을 냈다고 자신했다. 하지만 같은 시기 다른 집계에서는 비트코인 수익률이 두 달 새 66% 급감했다는 지적도 나와, 보유 모델의 지속가능성을 둘러싼 논쟁이 커지고 있다.",
+      "quote": "같은 숫자를 두고 자신감과 의심이 엇갈린다.",
+      "link": {
+        "label": "블록미디어 원문",
+        "href": "https://www.blockmedia.co.kr/archives/1122047?utm_source=general&utm_medium=rss"
+      },
+      "media": {
+        "image": "mstr",
+        "href": null,
+        "cta": null
+      }
+    },
+    {
+      "num": 7,
+      "chip": {
+        "text": "규제",
+        "emphasis": "primary"
+      },
+      "title": "CLARITY 법안, 상원 강경론 vs 트럼프 개인 사업 충돌",
+      "subtitle": "CLARITY Act at Risk",
+      "chips_label": "TAGS",
+      "chips": [
+        "#CLARITY법",
+        "#암호화폐규제",
+        "#트럼프"
+      ],
+      "body": "암호화폐 규제의 이정표로 꼽히는 CLARITY 법안을 둘러싸고 상원 일각에서는 트럼프 행정부의 제한 완화 양보안을 더 강경하게 되돌리자는 움직임이 나온다. 동시에 트럼프 개인 사업 이해관계가 오히려 이 법안 통과를 위협할 수 있다는 분석도 나오며, 법안의 향방이 안갯속이다.",
+      "quote": "규제를 흔든 건 야당이 아니라 이해충돌이었다.",
+      "link": {
+        "label": "CryptoSlate 원문",
+        "href": "https://cryptoslate.com/crypto-was-warned-that-trump-could-politicize-the-industry-clarity-is-testing-that-bet/"
+      },
+      "media": {
+        "image": "clarity-trump",
+        "href": null,
+        "cta": null
+      }
+    },
+    {
+      "num": 8,
+      "chip": {
+        "text": "온체인",
+        "emphasis": null
+      },
+      "title": "고래는 사고, 개미는 다른 길을 간다",
+      "subtitle": "Whale vs Retail Divergence",
+      "chips_label": "TAGS",
+      "chips": [
+        "#비트코인",
+        "#온체인",
+        "#고래지갑"
+      ],
+      "body": "온체인 데이터에서 10~1만 BTC를 보유한 '고래' 지갑들이 최근 8일간 약 1만9700 BTC를 사들인 것으로 나타났다. 반면 소매 투자자들의 매매 패턴은 이와 다른 방향을 보이며, 두 집단의 디커플링이 뚜렷해지고 있다는 관측이 나온다.",
+      "quote": null,
+      "link": {
+        "label": "Reddit 토론 보기",
+        "href": "https://old.reddit.com/r/Bitcoin/comments/1v9rh1c/onchain_data_shows_a_divergence_between_whale_and/"
+      },
+      "media": null
+    },
+    {
+      "num": 9,
+      "chip": {
+        "text": "보안",
+        "emphasis": "secondary"
+      },
+      "title": "양자 컴퓨터 대비, 하나는 깨지고 하나는 나왔다",
+      "subtitle": "Post-Quantum Bitcoin",
+      "chips_label": "TAGS",
+      "chips": [
+        "#비트코인",
+        "#양자컴퓨터",
+        "#암호화"
+      ],
+      "body": "비트코인의 양자내성 주소 후보로 거론되던 HAWK 알고리즘이 실제로 해킹당하며 취약점이 드러났다. 거의 같은 시점에 연구진은 미래 양자 공격으로부터 비트코인을 지킬 새로운 암호화 방식을 제안하며, 양자 대비 경쟁이 계속되고 있음을 보여줬다.",
+      "quote": "방패 하나가 깨지자, 다른 방패가 나왔다.",
+      "link": {
+        "label": "Decrypt 원문",
+        "href": "https://decrypt.co/374651/new-research-bitcoin-wallet-quantum-attacks-safe"
+      },
+      "media": {
+        "image": "quantum",
+        "href": null,
+        "cta": null
+      }
+    },
+    {
+      "num": 10,
+      "chip": {
+        "text": "유튜브 화제",
+        "emphasis": "primary"
+      },
+      "title": "\"클래리티 법안이 무너지고 있다\" — 유튜브도 들썩",
+      "subtitle": "YouTube: Clarity Act Chaos",
+      "chips_label": "TAGS",
+      "chips": [
+        "#CLARITY법",
+        "#유튜브화제",
+        "#CoinBureau"
+      ],
+      "body": "크립토 유튜브 채널들 사이에서 CLARITY 법안 처리가 좌초 위기에 놓였다는 소식이 빠르게 퍼졌다. Coin Bureau는 이를 \"역대 최대 암호화폐 법안의 붕괴\"라 표현했고, 국내 채널들도 연준 FOMC 생방송과 함께 이 이슈를 실시간으로 다뤘다.",
+      "quote": "법안 하나에 유튜브 전체가 반응했다.",
+      "link": {
+        "label": "Coin Bureau 영상",
+        "href": "https://youtu.be/A2VlNi3i248"
+      },
+      "media": {
+        "image": "clarity-yt",
+        "href": null,
+        "cta": null
+      }
+    }
+  ],
+  "closing": {
+    "eyebrow": "SUMMARY",
+    "mark_lines": [
+      "오늘의",
+      "BTC"
+    ],
+    "rows": [
+      [
+        "수집 기간",
+        "최근 24시간"
+      ],
+      [
+        "소스",
+        "my-news · my-youtube"
+      ],
+      [
+        "하이라이트",
+        "10건"
+      ]
+    ],
+    "stamp": "BTC DAILY DIGEST",
+    "restart": "처음부터 다시 보기 ↺",
+    "sources": [
+      "CryptoSlate",
+      "TokenPost",
+      "BlockMedia",
+      "Decrypt",
+      "Reddit",
+      "Coin Bureau"
+    ]
+  }
+}

@@ -10,6 +10,7 @@ __pycache__/
 # Node
 node_modules/
 frontend/dist/
+*.tsbuildinfo
 
 # Env
 .env
@@ -23,6 +24,9 @@ frontend/dist/
 # Ralph scratch state (per-phase PRD/progress, superseded by PROGRESS.md)
 /prd.json
 /progress.txt
+
+# Agent scratch state
+.omc/
 
 # OS
 .DS_Store
