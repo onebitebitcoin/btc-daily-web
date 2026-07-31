@@ -1,0 +1,70 @@
+name: "CI"
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "**.md"
+  pull_request:
+    paths-ignore:
+      - "**.md"
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@v7
+
+      - name: "Setup Python"
+        uses: actions/setup-python@v7
+        with:
+          python-version-file: .python-version
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - name: "Install dependencies"
+        run: pip install -r requirements.txt
+
+      - name: "Ruff lint"
+        run: ruff check .
+
+      # .env 없이 도는 환경 — config가 로컬 SQLite 기본값으로 떨어진다.
+      - name: "Pytest"
+        run: pytest
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@v7
+
+      - name: "Setup Node"
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: "Install dependencies"
+        run: npm ci
+
+      - name: "Lint"
+        run: npm run lint
+
+      - name: "Test"
+        run: npm run test
+
+      - name: "Build"
+        run: npm run build
