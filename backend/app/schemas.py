@@ -58,6 +58,12 @@ class Media(_Strict):
     cta: str | None = None
 
 
+class QA(_Strict):
+    question: str
+    answer: str
+    sources: list[str]
+
+
 class Card(_Strict):
     num: int
     chip: Chip
@@ -69,6 +75,7 @@ class Card(_Strict):
     quote: str | None = None
     link: Link | None = None
     media: Media | None = None
+    qa: list[QA] | None = None
 
 
 class Closing(_Strict):

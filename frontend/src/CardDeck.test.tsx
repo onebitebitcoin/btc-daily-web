@@ -66,4 +66,36 @@ describe('CardDeck', () => {
       `01 / ${content.cards.length + 2}`,
     );
   });
+
+  it('renders no .qa-block for cards without qa (pre-existing published editions)', () => {
+    const { container } = renderDeck();
+    expect(container.querySelector('.qa-block')).toBeNull();
+  });
+
+  it('renders exactly 3 .qa-item for a card with qa, and toggles a details on summary click', () => {
+    const qaCard = {
+      ...content.cards[0],
+      qa: [
+        { question: 'Q1?', answer: 'A1', sources: ['https://example.com/1'] },
+        { question: 'Q2?', answer: 'A2', sources: [] },
+        { question: 'Q3?', answer: 'A3', sources: ['https://example.com/3'] },
+      ],
+    };
+    const qaContent: EditionContent = {
+      ...content,
+      cards: [qaCard, ...content.cards.slice(1)],
+    };
+    const { container } = render(<CardDeck content={qaContent} media={media} />);
+
+    const items = container.querySelectorAll('.qa-item');
+    expect(items).toHaveLength(3);
+
+    const firstDetails = items[0] as HTMLDetailsElement;
+    expect(firstDetails.open).toBe(false);
+
+    const summary = firstDetails.querySelector('summary')!;
+    fireEvent.click(summary);
+
+    expect(firstDetails.open).toBe(true);
+  });
 });

@@ -67,3 +67,26 @@ def test_closing_row_must_be_a_pair() -> None:
 
     with pytest.raises(ValidationError):
         EditionContent.model_validate(payload)
+
+
+def test_card_qa_accepts_missing_and_full_list() -> None:
+    payload = reference_payload()
+    assert "qa" not in payload["cards"][0]
+
+    content = EditionContent.model_validate(payload)
+    assert content.cards[0].qa is None
+
+    payload["cards"][1]["qa"] = [
+        {"question": "Q1", "answer": "A1", "sources": ["https://example.com"]},
+        {"question": "Q2", "answer": "A2", "sources": []},
+        {
+            "question": "Q3",
+            "answer": "A3",
+            "sources": ["https://example.com/a", "https://example.com/b"],
+        },
+    ]
+
+    content = EditionContent.model_validate(payload)
+    assert content.cards[1].qa is not None
+    assert len(content.cards[1].qa) == 3
+    assert content.cards[1].qa[0].question == "Q1"

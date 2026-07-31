@@ -2,6 +2,7 @@ import { Fragment } from 'react';
 import { useSwipeDeck } from './useSwipeDeck';
 import { useThemeVars, type Theme } from './useThemeVars';
 import './deck.css';
+import './qa.css';
 
 export interface Cover {
   eyebrow: string;
@@ -21,6 +22,7 @@ export interface Card {
   quote: string | null;
   link: { label: string; href: string } | null;
   media: { image: string; href: string | null; cta: string | null } | null;
+  qa?: { question: string; answer: string; sources: string[] }[] | null;
 }
 
 export interface Closing {
@@ -33,7 +35,7 @@ export interface Closing {
 }
 
 export interface EditionContent {
-  meta: { title: string; slug: string };
+  meta: { title: string; slug: string; date: string };
   theme: Theme;
   brand: string;
   cover: Cover;
@@ -86,7 +88,8 @@ function CoverSlide({ cover, isActive }: { cover: Cover; isActive: boolean }) {
 
 function CardArt({ card, media }: { card: Card; media: Record<string, string> }) {
   if (!card.media) return null;
-  const src = card.media.image ? media[card.media.image] : undefined;
+  const key = card.media.image;
+  const src = key ? (media[key] ?? (/^https?:\/\//.test(key) ? key : undefined)) : undefined;
   if (!src) return <div className="art art-blank">{pad2(card.num)}</div>;
 
   const img = <img src={src} alt={card.title} loading="lazy" />;
@@ -160,6 +163,29 @@ function CardSlide({
                 <span className="tri" />
                 {card.link.label}
               </a>
+            )}
+
+            {card.qa && (
+              <div className="qa-block">
+                <p className="qa-label">생각 확장하기</p>
+                {card.qa.map((q, i) => (
+                  <details className="qa-item" key={i}>
+                    <summary>{q.question}</summary>
+                    <p>{q.answer}</p>
+                    {q.sources.length > 0 && (
+                      <ul className="qa-sources">
+                        {q.sources.map((url, si) => (
+                          <li key={si}>
+                            <a href={url} target="_blank" rel="noopener">
+                              출처 {si + 1}
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </details>
+                ))}
+              </div>
             )}
           </div>
         </div>

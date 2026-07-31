@@ -1,0 +1,41 @@
+/* New selectors only — reuses deck.css's runtime theme vars (--ink, --ink-dim,
+   --accent, --accent2, --paper2, --line, --chip-bg, --glow). Do not add rules
+   for deck.css's own selectors here. */
+
+.qa-block { display: flex; flex-direction: column; gap: 8px; }
+.qa-label {
+  font-family: 'Card Text', monospace; font-size: 10px; color: var(--ink-dim);
+  letter-spacing: 0.06em;
+}
+
+.qa-item {
+  border: 1px solid var(--line); border-radius: 10px; background: var(--chip-bg);
+  overflow: hidden;
+}
+.qa-item summary {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 9px 12px; cursor: pointer; list-style: none;
+  font-size: 12.5px; font-weight: 600; color: var(--ink); line-height: 1.4;
+}
+.qa-item summary::-webkit-details-marker { display: none; }
+.qa-item summary::after {
+  content: ''; flex: 0 0 auto; width: 0; height: 0;
+  border-style: solid; border-width: 5px 0 5px 8px;
+  border-color: transparent transparent transparent var(--accent2);
+  transition: transform 0.15s ease;
+}
+.qa-item[open] summary::after { transform: rotate(90deg); }
+.qa-item[open] summary { border-bottom: 1px solid var(--line); }
+
+.qa-item p {
+  margin: 0; padding: 10px 12px; padding-left: 14px;
+  border-left: 2px solid var(--accent); background: var(--glow);
+  font-size: 12.5px; line-height: 1.6; color: var(--ink);
+}
+
+.qa-sources { list-style: none; margin: 0; padding: 0 12px 10px; display: flex; flex-wrap: wrap; gap: 8px; }
+.qa-sources a {
+  font-family: 'Card Text', monospace; font-size: 10.5px; color: var(--ink-dim);
+  text-decoration: none;
+}
+.qa-sources a:hover, .qa-sources a:focus-visible { color: var(--accent2); }
