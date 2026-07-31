@@ -1,0 +1,111 @@
+/* Shared by /calendar (no <CardDeck>, no theme vars) and the DateStrip popover
+   (theme vars present). Every var() below carries a hardcoded fallback for the
+   standalone-page case. */
+.calendar-shell {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 24px 16px;
+  background: var(--bg, #14110d);
+  color: var(--ink, #201c14);
+  font-family: 'Card Text', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif;
+}
+
+.cal-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.cal-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink, #201c14);
+  min-width: 8em;
+  text-align: center;
+}
+
+.cal-nav-btn {
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--ink-dim, #9a9184);
+  background: var(--chip-bg, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.14));
+  border-radius: 20px;
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+}
+.cal-nav-btn:hover {
+  color: var(--accent-strong, #ffcf7f);
+  border-color: var(--accent, #f2a93b);
+}
+
+.cal-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  width: 100%;
+  max-width: 360px;
+  font-size: 12px;
+  color: var(--ink-dim, #9a9184);
+  text-align: center;
+}
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  width: 100%;
+  max-width: 360px;
+}
+
+.cal-day {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  font-family: inherit;
+  font-size: 13px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+}
+
+.cal-published {
+  color: var(--accent-strong, #ffcf7f);
+  background: var(--chip-bg, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--accent, #f2a93b);
+  cursor: pointer;
+}
+.cal-published:hover {
+  background: var(--glow, rgba(242, 169, 59, 0.18));
+}
+
+.cal-empty {
+  color: var(--ink-dim, #9a9184);
+  opacity: 0.4;
+  cursor: default;
+}
+
+.strip-cal-wrap {
+  position: relative;
+}
+
+.cal-popover {
+  position: fixed;
+  top: 54px;
+  right: 14px;
+  z-index: 20;
+  padding: 12px;
+  background: var(--bg, #14110d);
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.14));
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.cal-popover .cal-weekdays,
+.cal-popover .cal-grid {
+  max-width: 240px;
+}

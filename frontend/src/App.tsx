@@ -1,13 +1,16 @@
-import { CardDeck, type EditionContent } from './CardDeck';
-import content from './fixtures/content.json';
-
-// Phase 4 renders a local fixture; the API wiring lands in Phase 5.
-const media: Record<string, string> = Object.fromEntries(
-  Object.entries(
-    import.meta.glob('./assets/media/*', { eager: true, query: '?url', import: 'default' }),
-  ).map(([path, url]) => [path.replace(/^.*\/|\.[^.]+$/g, ''), url as string]),
-);
+import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import CalendarPage from './CalendarPage';
+import EditionPage, { RootRedirect, StatusScreen } from './EditionPage';
 
 export default function App() {
-  return <CardDeck content={content as EditionContent} media={media} />;
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<RootRedirect />} />
+        <Route path="/d/:date" element={<EditionPage />} />
+        <Route path="/calendar" element={<CalendarPage />} />
+        <Route path="*" element={<StatusScreen>존재하지 않는 페이지입니다.</StatusScreen>} />
+      </Routes>
+    </BrowserRouter>
+  );
 }
