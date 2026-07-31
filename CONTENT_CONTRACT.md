@@ -65,8 +65,25 @@ python scripts/push_edition.py drafts/edition-<date>.json --date <date>
 내부 동작:
 1. `app.schemas.EditionContent`로 **로컬 선검증** — 여기서 실패하면 서버에
    아무것도 보내지 않고 어떤 필드가 왜 틀렸는지 출력 후 종료.
-2. `backend/.env`(절대경로로 탐색)에서 `ADMIN_API_KEY` 로드. 없으면 실패.
-3. `POST {api}/api/editions` (`--api` 기본값 `http://localhost:8002`).
+2. `check_cover_matches_date`로 `cover.mark`/`cover.meta[2]`가 `meta.date`에서
+   파생된 값인지 확인 — stale draft가 DB의 올바른 cover를 되돌리는 사고를 막는다.
+   여기서 걸리면 draft를 최신 코드로 재생성해야 하며, **가드를 우회하지 않는다**.
+3. `backend/.env`(절대경로로 탐색)에서 `ADMIN_API_KEY` 로드. 없으면 실패.
+4. `POST {api}/api/editions` (`--api` 기본값 `http://localhost:8002`).
+
+### 프로덕션 발행
+
+수집 소스(my-news `:8000`, my-youtube `:23456`)는 개발 머신에만 있으므로,
+수집·문구작성·Q&A 생성은 로컬에서 하고 **마지막 발행만 프로덕션을 향한다**:
+
+```bash
+python scripts/push_edition.py ../drafts/edition-<date>.json \
+  --api https://daily.onebitebitcoin.com
+```
+
+- `backend/.env`의 `ADMIN_API_KEY`가 **서버 `.env`의 값과 같아야** 한다. 다르면 401.
+- 같은 `meta.date`로 다시 보내면 upsert다 — 오타 수정 후 재발행이 안전하다.
+- 발행 확인: `curl -s https://daily.onebitebitcoin.com/api/editions`
 
 ## 4. 이미지 규칙
 

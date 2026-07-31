@@ -12,10 +12,13 @@
 
 - [x] Phase 6: Dockerization (`4261824`, v0.3.0) — 서비스 3개(db/backend/web)로 구성. SPEC은 frontend와 nginx를 분리했으나, frontend는 정적파일만 만들고 nginx가 서빙하는 구조라 볼륨 공유 없이 **nginx 이미지에 dist를 굽는 방식으로 병합**(사용자 승인). 배포 대상 VPS가 stack-health와 공용이고 그 서버의 **호스트 nginx가 80/443과 TLS를 이미 소유**(systemd+venv 운영, `deploy.sh:125`의 nginx-switch)하므로, web 컨테이너는 80/443에 바인딩하지 않고 `${WEB_PORT:-8020}`으로만 노출해 호스트 nginx가 프록시하게 했다. 백엔드에 정적서빙/catch-all이 전혀 없어(`main.py` 27줄) nginx의 `try_files` SPA fallback이 없으면 `/d/:date`·`/calendar` 직접진입이 404가 되는 점이 핵심. `redirect_slashes=False`라 `/api` 프록시는 경로를 그대로 넘긴다. psycopg2-binary만 추가하면 됐고 모델·마이그레이션은 이미 JSONB variant 대응 완료 상태였다. **로컬 Mac에 Docker가 없어 `docker compose up` 실물 검증은 못 했다** — YAML 문법, DATABASE_URL 파싱, Postgres DDL이 JSONB로 컴파일되는지까지만 확인. 실행 검증은 서버에서 필요. ruff clean, pytest 52, vitest 27, build 성공, CI 녹색.
 
+- [x] Phase 7: 프로덕션 배포 (v0.4.0) — **VPS 위에서 직접 수행**(이 저장소가 서버에도 체크아웃돼 있음). Phase 6에서 못 했던 실물 검증을 전부 해소: `docker compose up` 3종 기동, `alembic upgrade head` 실행 확인(`9d83480bdb19`), `content` 컬럼이 **jsonb로 컴파일**되는 것 확인, SPA fallback(`/d/:date`·`/calendar` 200) 확인. 서버 도구 문제 2건을 먼저 고쳐야 했다: (1) `/usr/lib/docker/cli-plugins`의 compose v2.15.1이 탐색 순서상 앞서서 데몬(29.2.1, 최소 API 1.44)이 거부 → `~/.docker/cli-plugins`에 v5.1.0 심볼릭 링크(서버의 fee/meetup 스택도 같이 고쳐짐), (2) 백엔드 이미지에 `backend/`만 들어 있어 `tests`가 읽는 `../reference/content.json`이 없음 → 저장소 루트를 마운트해 실행. **보안 결함 수정**: compose의 `${WEB_PORT}:80`이 0.0.0.0 바인딩이라 공인 IP:8020으로 TLS/Cloudflare 우회 평문 직결이 가능했음 → `127.0.0.1:` 바인딩. 인그레스는 호스트 nginx + LE 전용 인증서(`daily.onebitebitcoin.com`, ~2026-10-29, 자동갱신 등록). 공용 인증서에 `--expand` 하지 않은 이유는 SAN 누락 위험. Cloudflare 프록시 뒤지만 HTTP-01이 통과함을 실측 확인. 캐시 헤더도 확인(HTML/API `DYNAMIC`, 해시 자산만 장기). 발행 인증 경로를 데이터 없이 검증(401/401/422). `frontend/src/fixtures/content.json` 시드는 **포기** — `push_edition.py:58`의 cover 드리프트 가드가 거부했고(구버전 `cover.mark`) 그 가드가 막으려는 사고를 우회하지 않기로 함. 백업(`deploy/backup.sh`) 크론 등록 + 실행 검증. ruff clean, pytest 52, eslint 0, vitest 27, build 성공.
+
 ## 현재 진행 중
-(없음 — 다음 Phase는 사용자 지시 대기)
+(없음)
 
 ## 남은 Phase
-- [ ] Phase 7: 최종 통합 검증 (서버에서 `docker compose up` 스모크 테스트, 시각적 비교, README, VERSION, git tag)
-- [ ] CD 워크플로 — 서버 포트 배정/nginx 서버블록/TLS 확정 후. VPS에 self-hosted runner가 이미 있어 stack-health와 같은 방식 재사용 가능
+- [ ] **기존 발행분 5일치 이관 (Mac 작업)** — 2026-07-27~07-31 원본이 Mac의 SQLite/`drafts/`에만 있다. 서버 `.env`의 `ADMIN_API_KEY`를 Mac `backend/.env`에 맞춘 뒤 `push_edition.py ... --api https://daily.onebitebitcoin.com`. **이관 전까지 사이트는 편집본 0건이라 에러 화면**이다(`latest` 404)
+- [ ] 시각적 동일성 비교 (원본 정적 `reference/template.html` vs 프로덕션) — 데이터 이관 후에만 가능
+- [ ] CD 워크플로 — 포트(8020)·vhost·TLS가 확정됐으므로 이제 착수 가능. VPS에 self-hosted runner가 이미 3개(fee/meetup/stack-health) 있어 같은 방식 재사용 가능
 - [ ] 카드 크기 통일 + 대표이미지 og:image — `frontend/index.html`에 og/description 메타태그가 전혀 없음(현재 head에 charset/viewport/title뿐)

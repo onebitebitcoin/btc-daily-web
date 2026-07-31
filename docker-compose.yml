@@ -30,8 +30,10 @@ services:
     restart: unless-stopped
     # 호스트 nginx(daily.onebitebitcoin.com, TLS)가 이 포트로 프록시한다.
     # 80/443은 호스트 nginx가 이미 쓰고 있으므로 여기서 바인딩하지 않는다.
+    # 루프백에만 바인딩한다 — 0.0.0.0이면 공인 IP:8020으로 TLS/Cloudflare를 우회한
+    # 평문 직결이 뚫린다. 같은 서버의 meetup-web(127.0.0.1:8000)과 동일한 관례.
     ports:
-      - "${WEB_PORT:-8020}:80"
+      - "127.0.0.1:${WEB_PORT:-8020}:80"
     depends_on:
       - backend
 

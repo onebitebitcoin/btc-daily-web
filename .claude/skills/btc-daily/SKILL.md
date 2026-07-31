@@ -108,23 +108,32 @@ cd backend && source .venv/bin/activate && python scripts/generate_qa.py ../draf
 
 ### 6. 발행
 
+**프로덕션으로 발행한다.** 수집·문구작성·Q&A는 로컬에서 했지만 결과물이 사는 곳은 서버다.
+
 ```bash
-cd backend && source .venv/bin/activate && python scripts/push_edition.py ../drafts/edition-<date>.json
+cd backend && source .venv/bin/activate && \
+python scripts/push_edition.py ../drafts/edition-<date>.json --api https://daily.onebitebitcoin.com
 ```
+
+`--api`를 빼면 로컬(`localhost:8002`)로 간다 — 리허설용으로만 쓴다.
 
 스키마 위반이면 POST 전에 로컬에서 잡아준다. 어떤 필드가 틀렸는지 출력되니 고쳐서 재실행.
 
 > `extra="forbid"`라 오타 키 하나만 있어도 실패한다. `theme` 16키 전부 필수,
 > `closing.rows`는 반드시 `[키, 값]` 쌍.
+>
+> `cover가 meta.date와 불일치`가 뜨면 stale draft다. **가드를 우회하지 말고**
+> 2단계부터 다시 해서 draft를 최신 코드로 재생성한다.
 
 ### 7. 검증 후 보고
 
 ```bash
-curl -s "localhost:8002/api/editions/<date>" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['meta']); print(len(d['cards']), '장')"
-curl -s localhost:8002/api/editions
+curl -s "https://daily.onebitebitcoin.com/api/editions/<date>" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['meta']); print(len(d['cards']), '장')"
+curl -s https://daily.onebitebitcoin.com/api/editions
 ```
 
-사용자에게 보고할 것: 발행된 날짜, 카드 10장의 제목 목록, 사이트 URL(`http://localhost:5175/d/<date>`).
+사용자에게 보고할 것: 발행된 날짜, 카드 10장의 제목 목록,
+사이트 URL(`https://daily.onebitebitcoin.com/d/<date>`).
 
 ---
 
@@ -135,5 +144,6 @@ curl -s localhost:8002/api/editions
 | collect가 0건 반환 | 소스 서버가 죽었거나 24h 내 BTC 데이터가 없음. 소스 상태부터 확인 |
 | push 422 | 로컬 검증을 건너뛴 것. `push_edition.py`가 출력한 필드 경로를 보고 수정 |
 | push 401 | `backend/.env`의 `ADMIN_API_KEY` 누락 |
+| push 401 (프로덕션) | `backend/.env`의 `ADMIN_API_KEY`가 서버 `.env` 값과 달라졌다. 서버에서 `grep '^ADMIN_API_KEY=' ~/btc-daily-web/.env`로 대조 |
 | 사이트에 안 뜸 | 프론트가 8002를 프록시하는지(`frontend/vite.config.ts`), 백엔드가 떠 있는지 확인 |
 | Q&A 다 실패 | `backend/.env`의 `GEMINI_API_KEY` 확인. 일부만 실패는 정상 범위(카드별 독립) |
