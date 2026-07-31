@@ -1,0 +1,13 @@
+# .env에는 실제 ADMIN_API_KEY / GEMINI_API_KEY가 들어 있다 — 이미지에 절대 들어가면 안 된다.
+.env
+.env.*
+
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.coverage
+*.db
+debug.log
+.omc/
