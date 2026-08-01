@@ -95,4 +95,11 @@ describe('CalendarPage', () => {
 
     expect(await screen.findByText('서버에 연결할 수 없습니다.')).toBeDefined();
   });
+
+  it('shows a no-data notice when no edition has ever been published', async () => {
+    mockFetch([]);
+    renderCalendar();
+
+    expect(await screen.findByText('아직 발행된 데이터가 없습니다.')).toBeDefined();
+  });
 });

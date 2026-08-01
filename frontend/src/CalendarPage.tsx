@@ -29,6 +29,7 @@ export default function CalendarPage() {
 
   return (
     <div className="calendar-shell">
+      {published.size === 0 && <p className="cal-notice">아직 발행된 데이터가 없습니다.</p>}
       <MonthCalendar published={published} onSelect={(date) => navigate(`/d/${date}`)} />
     </div>
   );

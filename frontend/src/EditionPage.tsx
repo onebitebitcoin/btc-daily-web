@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Navigate, useParams } from 'react-router-dom';
 import { CardDeck, type EditionContent } from './CardDeck';
 import { DateStrip } from './DateStrip';
-import { errorMessage, fetchEdition, fetchLatestEdition } from './api';
+import { NotFoundError, errorMessage, fetchEdition, fetchLatestEdition } from './api';
 import { bundledMedia } from './media';
 import './strip.css';
 
@@ -23,7 +23,8 @@ export function RootRedirect() {
         if (!cancelled) setDate(edition.meta.date);
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(errorMessage(err));
+        if (cancelled) return;
+        setError(err instanceof NotFoundError ? '아직 발행된 데이터가 없습니다.' : errorMessage(err));
       });
     return () => {
       cancelled = true;

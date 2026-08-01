@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import EditionPage from './EditionPage';
+import EditionPage, { RootRedirect } from './EditionPage';
 import fixture from './fixtures/content.json';
 import type { EditionContent } from './CardDeck';
 
@@ -53,5 +53,21 @@ describe('EditionPage', () => {
 
     renderEditionPage('2099-01-01');
     expect(await screen.findByText('존재하지 않는 날짜입니다.')).toBeDefined();
+  });
+});
+
+describe('RootRedirect', () => {
+  it('shows a no-data message when no edition has ever been published', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(mockResponse(null, 404))));
+
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route path="/" element={<RootRedirect />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('아직 발행된 데이터가 없습니다.')).toBeDefined();
   });
 });

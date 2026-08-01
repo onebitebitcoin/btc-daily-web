@@ -90,6 +90,12 @@
   cursor: default;
 }
 
+.cal-notice {
+  font-size: 13px;
+  color: var(--ink-dim, #9a9184);
+  text-align: center;
+}
+
 .strip-cal-wrap {
   position: relative;
 }
