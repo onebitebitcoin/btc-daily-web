@@ -10,7 +10,7 @@
 
 | 경로 | 내용 |
 |---|---|
-| `backend/` | FastAPI + SQLAlchemy + Alembic. 엔드포인트 5개(`/health`, 목록/단건/latest/POST) |
+| `backend/` | FastAPI + SQLAlchemy + Alembic. 엔드포인트 5개(`/health`, 목록/단건/latest/POST) + OG 미리보기용 3개(`/api/og/{date}`, `/api/og/latest`, `/api/og/{date}/image.jpg`) |
 | `backend/scripts/` | 수집·Q&A 생성·발행 스크립트(앱 코드 아님) |
 | `frontend/` | React + Vite + Tailwind. `deck.css`는 원본 정적 카드뉴스에서 그대로 이식 |
 | `deploy/` | 호스트 nginx vhost, DB 백업 스크립트 |
@@ -41,6 +41,11 @@ cd frontend && npm run lint && npm run test && npm run build   # 27 tests
 
 서비스 3개: `db`(Postgres 16) · `backend`(uvicorn, 기동 시 `alembic upgrade head`) ·
 `web`(nginx가 `dist`를 서빙 + `/api` → backend 프록시 + SPA fallback).
+
+`/`, `/d/{date}`는 User-Agent가 SNS 미리보기 봇(Twitterbot, Slackbot, KakaoTalk 등,
+`frontend/nginx.conf`의 `is_social_bot` 목록)일 때만 백엔드가 렌더링한 OG 메타 HTML로
+넘어간다 — 사람은 그대로 SPA를 받는다. og:image는 카드 1 썸네일을 1200×630으로 크롭해
+`og_cache` 볼륨(`/data/og`)에 캐시한다.
 
 ### 1. 환경 변수
 

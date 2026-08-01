@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     # Empty means "no publishing key configured" — auth must fail closed, never
     # ship a usable default secret.
     admin_api_key: str = ""
+    og_cache_dir: str = "/data/og"
 
 
 @lru_cache

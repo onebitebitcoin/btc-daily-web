@@ -20,6 +20,8 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL}
       ADMIN_API_KEY: ${ADMIN_API_KEY}
+    volumes:
+      - og_cache:/data/og
     # 기동 직후 alembic이 붙어야 하므로 "started"가 아니라 "healthy"를 기다린다.
     depends_on:
       db:
@@ -39,3 +41,4 @@ services:
 
 volumes:
   pgdata:
+  og_cache:
