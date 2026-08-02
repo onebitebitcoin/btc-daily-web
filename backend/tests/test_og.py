@@ -53,6 +53,25 @@ def test_og_image_generates_and_crops_to_1200x630(client, tmp_path, monkeypatch)
     assert calls == ["https://example.com/thumb.jpg"]
 
 
+def test_og_image_has_logo_badge_in_bottom_right(client, tmp_path, monkeypatch) -> None:
+    override_og_cache_dir(client, tmp_path)
+    seed_edition(client.session_factory, _payload_with_image_url("2026-07-30"))
+
+    def fake_get(url, timeout=None, follow_redirects=None):
+        fake_request = httpx.Request("GET", url)
+        return httpx.Response(200, content=_fake_source_image_bytes(), request=fake_request)
+
+    monkeypatch.setattr("app.routes.httpx.get", fake_get)
+
+    response = client.get("/api/og/2026-07-30/image.jpg")
+
+    img = Image.open(io.BytesIO(response.content))
+    # source is a flat (200, 50, 50) fill — the badge/ring paste overwrites it near
+    # the bottom-right corner, so that pixel should no longer be the background color.
+    badge_center = (img.width - 76, img.height - 76)
+    assert img.getpixel(badge_center) != (200, 50, 50)
+
+
 def test_og_image_second_request_hits_cache(client, tmp_path, monkeypatch) -> None:
     override_og_cache_dir(client, tmp_path)
     seed_edition(client.session_factory, _payload_with_image_url("2026-07-30"))

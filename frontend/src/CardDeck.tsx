@@ -1,6 +1,7 @@
 import { Fragment } from 'react';
 import { useSwipeDeck } from './useSwipeDeck';
 import { useThemeVars, type Theme } from './useThemeVars';
+import hanipLogo from './assets/brand/hanip-logo.jpg';
 import './deck.css';
 import './qa.css';
 
@@ -242,7 +243,10 @@ function ClosingSlide({
             ))}
           </div>
 
-          <span className="stamp">{closing.stamp}</span>
+          <span className="stamp">
+            <img className="stamp-logo" src={hanipLogo} alt="" />
+            {closing.stamp}
+          </span>
 
           <button className="restart" type="button" onClick={onRestart}>
             {closing.restart}
@@ -277,7 +281,10 @@ export function CardDeck({ content, media }: CardDeckProps) {
       </div>
 
       <div className="topline">
-        <span className="brand">{brand}</span>
+        <span className="brand">
+          <img className="brand-logo" src={hanipLogo} alt="" />
+          {brand}
+        </span>
         <span className="counter">
           {pad2(current + 1)} / {total}
         </span>

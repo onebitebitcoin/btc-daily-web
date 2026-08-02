@@ -11,10 +11,15 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Request
-from PIL import Image
+from PIL import Image, ImageDraw
 
 OG_IMAGE_SIZE = (1200, 630)
 DESCRIPTION_MAX_LEN = 160
+
+LOGO_PATH = Path(__file__).parent / "assets" / "hanip-logo.jpg"
+LOGO_BADGE_SIZE = 88
+LOGO_BADGE_MARGIN = 28
+LOGO_RING_PADDING = 8
 
 
 def resolve_og_image_url(content: dict[str, Any]) -> str | None:
@@ -44,11 +49,33 @@ def crop_to_fill(img: Image.Image, size: tuple[int, int] = OG_IMAGE_SIZE) -> Ima
     return resized.crop((left, top, left + target_w, top + target_h))
 
 
+def add_logo_badge(img: Image.Image) -> Image.Image:
+    """우하단에 한입비트코인 원형 배지를 합성한다 — 링크 미리보기에도 출처가 남도록."""
+    badge = Image.open(LOGO_PATH).convert("RGB").resize(
+        (LOGO_BADGE_SIZE, LOGO_BADGE_SIZE), Image.LANCZOS
+    )
+    badge_mask = Image.new("L", (LOGO_BADGE_SIZE, LOGO_BADGE_SIZE), 0)
+    ImageDraw.Draw(badge_mask).ellipse((0, 0, LOGO_BADGE_SIZE, LOGO_BADGE_SIZE), fill=255)
+
+    ring_size = LOGO_BADGE_SIZE + LOGO_RING_PADDING
+    ring = Image.new("RGBA", (ring_size, ring_size), (0, 0, 0, 0))
+    ImageDraw.Draw(ring).ellipse((0, 0, ring_size, ring_size), fill=(255, 255, 255, 235))
+
+    out = img.convert("RGB").copy()
+    x = out.width - LOGO_BADGE_MARGIN - ring_size
+    y = out.height - LOGO_BADGE_MARGIN - ring_size
+    inset = LOGO_RING_PADDING // 2
+    out.paste(ring, (x, y), ring)
+    out.paste(badge, (x + inset, y + inset), badge_mask)
+    return out
+
+
 def og_image_bytes_to_jpeg(raw: bytes) -> bytes:
     img = Image.open(io.BytesIO(raw)).convert("RGB")
     cropped = crop_to_fill(img)
+    branded = add_logo_badge(cropped)
     buf = io.BytesIO()
-    cropped.save(buf, format="JPEG", quality=85)
+    branded.save(buf, format="JPEG", quality=85)
     return buf.getvalue()
 
 
