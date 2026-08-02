@@ -28,8 +28,9 @@ describe('CardDeck', () => {
     const { container } = renderDeck();
     const arts = container.querySelectorAll('.art');
     expect(container.querySelector('.art img')?.getAttribute('src')).toBe('/fed-macro.jpg');
-    // every card with a media block but no matching file renders .art-blank
-    expect(container.querySelectorAll('.art-blank').length).toBe(arts.length - 1);
+    // the cover mirrors card 1's art, so /fed-macro.jpg resolves twice (cover + card 1);
+    // every other card with a media block but no matching file renders .art-blank
+    expect(container.querySelectorAll('.art-blank').length).toBe(arts.length - 2);
   });
 
   it('marks the chip emphasis with the reference class names', () => {

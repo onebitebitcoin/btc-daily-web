@@ -101,7 +101,24 @@ body {
   .card { transition: none; opacity: 1; transform: none; }
 }
 
-.card-scroll { overflow-y: auto; flex: 1; min-height: 0; }
+/* Scroll-shadow affordance: signals "more below" without JS. The cover
+   gradients scroll with content (attachment: local) and mask the shadow
+   radials (attachment: scroll, pinned to the viewport edge) exactly when
+   there's nothing left to scroll toward — so each shadow self-hides at
+   its own end of the content. */
+.card-scroll {
+  overflow-y: auto; flex: 1; min-height: 0;
+  background-color: var(--paper2);
+  background-image:
+    linear-gradient(var(--paper2) 30%, rgba(0, 0, 0, 0)),
+    linear-gradient(rgba(0, 0, 0, 0), var(--paper2) 70%),
+    radial-gradient(farthest-side at 50% 0, rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0)),
+    radial-gradient(farthest-side at 50% 100%, rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0));
+  background-repeat: no-repeat;
+  background-position: top, bottom, top, bottom;
+  background-size: 100% 28px, 100% 28px, 100% 10px, 100% 10px;
+  background-attachment: local, local, scroll, scroll;
+}
 .card-inner { padding: 22px 22px 26px; display: flex; flex-direction: column; gap: 14px; }
 
 .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }

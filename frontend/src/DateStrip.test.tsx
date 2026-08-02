@@ -77,6 +77,11 @@ describe('DateStrip', () => {
   });
 
   it('navigates to /d/:date when a date is picked from the popover', async () => {
+    // MonthCalendar defaults its view to `new Date()` — pin the clock so the
+    // popover opens on July 2026 regardless of when this test actually runs.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-07-31T12:00:00Z'));
+
     mockFetch(editions);
     const { container } = renderStrip('2026-07-31');
 
@@ -88,5 +93,7 @@ describe('DateStrip', () => {
 
     expect((await screen.findByTestId('route-date')).textContent).toBe('2026-07-30');
     expect(container.querySelector('.cal-popover')).toBeNull();
+
+    vi.useRealTimers();
   });
 });

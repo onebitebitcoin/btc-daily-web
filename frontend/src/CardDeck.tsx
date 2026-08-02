@@ -53,32 +53,45 @@ const pad2 = (n: number) => String(n).padStart(2, '0');
 const emphClass = (emphasis: string | null) =>
   emphasis === 'primary' ? ' emph-a' : emphasis === 'secondary' ? ' emph-b' : '';
 
-function CoverSlide({ cover, isActive }: { cover: Cover; isActive: boolean }) {
+function CoverSlide({
+  cover,
+  coverCard,
+  media,
+  isActive,
+}: {
+  cover: Cover;
+  coverCard: Card | undefined;
+  media: Record<string, string>;
+  isActive: boolean;
+}) {
   return (
     <div className={'slide' + (isActive ? ' is-active' : '')} role="group">
       <div className="card is-cover">
-        <div className="card-inner">
-          <span className="badge">{cover.eyebrow}</span>
-          <h1 className="cover-mark">
-            {cover.mark.map((line, i) => (
-              <Fragment key={i}>
-                {i > 0 && <br />}
-                {line}
-              </Fragment>
-            ))}
-          </h1>
-          <p className="cover-meta">
-            {cover.meta.map((x, i) => (
-              <span key={i}>{x}</span>
-            ))}
-          </p>
-          <div className="cover-hint">
-            {cover.hint}{' '}
-            <span className="sw">
-              <span />
-              <span />
-              <span />
-            </span>
+        <div className="card-scroll">
+          <div className="card-inner">
+            <span className="badge">{cover.eyebrow}</span>
+            {coverCard && <CardArt card={coverCard} media={media} />}
+            <h1 className="cover-mark">
+              {cover.mark.map((line, i) => (
+                <Fragment key={i}>
+                  {i > 0 && <br />}
+                  {line}
+                </Fragment>
+              ))}
+            </h1>
+            <p className="cover-meta">
+              {cover.meta.map((x, i) => (
+                <span key={i}>{x}</span>
+              ))}
+            </p>
+            <div className="cover-hint">
+              {cover.hint}{' '}
+              <span className="sw">
+                <span />
+                <span />
+                <span />
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -308,7 +321,7 @@ export function CardDeck({ content, media }: CardDeckProps) {
       </button>
 
       <div className="track" ref={trackRef}>
-        <CoverSlide cover={cover} isActive={current === 0} />
+        <CoverSlide cover={cover} coverCard={cards[0]} media={media} isActive={current === 0} />
         {cards.map((card, i) => (
           <CardSlide
             key={card.num}

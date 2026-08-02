@@ -1,6 +1,6 @@
 ---
 name: btc-daily
-description: 최근 24시간 my-news + my-youtube 데이터로 오늘자 BTC 카드뉴스 10장을 만들어 btc-daily-web에 발행한다. "btc daily", "오늘 카드뉴스", "카드뉴스 발행" 키워드로 트리거.
+description: 최근 24시간 my-news + my-youtube 데이터로 오늘자 비트코인 카드뉴스 10장을 만들어 btc-daily-web에 발행한다. "btc daily", "오늘 카드뉴스", "카드뉴스 발행" 키워드로 트리거.
 ---
 
 # btc-daily — 오늘자 카드뉴스 발행
@@ -44,7 +44,7 @@ cd backend && source .venv/bin/activate && python scripts/collect_daily.py
 
 → `drafts/draft-<YYYY-MM-DD>.json` 생성. 구조:
 - `skeleton` — `meta`/`theme`/`brand`/`cover`/`closing`이 이미 채워져 있다. **건드리지 마라.**
-- `candidates.news[]` — 최근 24h BTC 기사 (중복 제외, 화제성 순)
+- `candidates.news[]` — 최근 24h 비트코인 기사 (중복 제외, 화제성 순)
 - `candidates.videos[]` — 최근 24h 비트코인 유튜브 (조회수 순)
 
 ### 3. 카드 10장 선별
@@ -141,7 +141,7 @@ curl -s https://daily.onebitebitcoin.com/api/editions
 
 | 증상 | 원인 / 대응 |
 |---|---|
-| collect가 0건 반환 | 소스 서버가 죽었거나 24h 내 BTC 데이터가 없음. 소스 상태부터 확인 |
+| collect가 0건 반환 | 소스 서버가 죽었거나 24h 내 비트코인 데이터가 없음. 소스 상태부터 확인 |
 | push 422 | 로컬 검증을 건너뛴 것. `push_edition.py`가 출력한 필드 경로를 보고 수정 |
 | push 401 | `backend/.env`의 `ADMIN_API_KEY` 누락 |
 | push 401 (프로덕션) | `backend/.env`의 `ADMIN_API_KEY`가 서버 `.env` 값과 달라졌다. 서버에서 `grep '^ADMIN_API_KEY=' ~/btc-daily-web/.env`로 대조 |
