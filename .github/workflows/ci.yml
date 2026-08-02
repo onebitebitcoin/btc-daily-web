@@ -68,3 +68,22 @@ jobs:
 
       - name: "Build"
         run: npm run build
+
+  deploy:
+    needs: [backend, frontend]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, btc-daily-web]
+    timeout-minutes: 10
+
+    steps:
+      # self-hosted 러너가 이미 /home/measly/btc-daily-web에서 도는 컨테이너와
+      # 같은 서버에 있다 — actions/checkout으로 별도 워크스페이스에 받지 않고
+      # 배포용 클론 디렉토리를 직접 최신화한다 (.env·볼륨이 거기 있음).
+      - name: "Deploy (pull + rebuild + restart)"
+        run: |
+          set -euo pipefail
+          cd /home/measly/btc-daily-web
+          git fetch origin main
+          git pull --ff-only origin main
+          docker compose build backend web
+          docker compose up -d backend web
