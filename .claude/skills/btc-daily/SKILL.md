@@ -120,7 +120,7 @@ python scripts/push_edition.py ../drafts/edition-<date>.json --api https://daily
 스키마 위반이면 POST 전에 로컬에서 잡아준다. 어떤 필드가 틀렸는지 출력되니 고쳐서 재실행.
 
 > `extra="forbid"`라 오타 키 하나만 있어도 실패한다. `theme` 16키 전부 필수,
-> `closing.rows`는 반드시 `[키, 값]` 쌍.
+> `closing.links`의 각 항목은 `label`/`href` 모두 필수.
 >
 > `cover가 meta.date와 불일치`가 뜨면 stale draft다. **가드를 우회하지 말고**
 > 2단계부터 다시 해서 draft를 최신 코드로 재생성한다.

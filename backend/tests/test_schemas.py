@@ -27,7 +27,7 @@ def test_reference_content_validates() -> None:
     assert content.cards[0].chip.emphasis == "primary"
     assert content.cards[2].chip.emphasis is None
     assert content.cards[7].media is None
-    assert content.closing.rows[0] == ("수집 기간", "최근 24시간")
+    assert content.closing.links[0].label == "유튜브 구독하기"
     assert content.theme.accent == "#f2a93b"
 
 
@@ -61,9 +61,9 @@ def test_unknown_field_fails() -> None:
         EditionContent.model_validate(payload)
 
 
-def test_closing_row_must_be_a_pair() -> None:
+def test_closing_link_requires_href() -> None:
     payload = reference_payload()
-    payload["closing"]["rows"][0] = ["only-one"]
+    del payload["closing"]["links"][0]["href"]
 
     with pytest.raises(ValidationError):
         EditionContent.model_validate(payload)

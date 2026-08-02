@@ -219,12 +219,16 @@ body {
 @keyframes sw { 0%,100% { opacity: 0.25; transform: translateX(0); } 50% { opacity: 1; transform: translateX(3px); } }
 @media (prefers-reduced-motion: reduce) { .cover-hint .sw span { animation: none; opacity: 0.7; } }
 
-.totals { width: 100%; border-top: 1px solid var(--line); margin-top: 4px; padding-top: 12px; }
-.trow {
-  display: flex; justify-content: space-between; font-family: 'Card Text', monospace;
-  font-size: 12px; padding: 5px 0; border-bottom: 1px dotted var(--line); color: var(--ink-dim);
+.closing-links {
+  width: 100%; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;
+  border-top: 1px solid var(--line); margin-top: 4px; padding-top: 14px;
 }
-.trow b { color: var(--ink); font-weight: 700; font-variant-numeric: tabular-nums; }
+.closing-link {
+  font-family: 'Card Text', monospace; font-size: 12px; font-weight: 700;
+  color: var(--ink); background: none; border: 1px solid var(--line);
+  padding: 8px 14px; border-radius: 20px; text-decoration: none;
+}
+.closing-link:hover, .closing-link:focus-visible { color: var(--accent2); border-color: var(--accent2); }
 .stamp {
   margin-top: 14px; font-family: 'Card Display', sans-serif; font-weight: 700; font-size: 12px;
   letter-spacing: 0.08em; color: var(--accent2); border: 2px solid var(--accent2);
@@ -241,6 +245,7 @@ body {
 .src-list { text-align: left; font-size: 10.5px; color: var(--ink-dim); line-height: 1.8; width: 100%; }
 .src-list a { color: var(--ink-dim); }
 .src-list a:hover { color: var(--accent2); }
+.disclaimer { margin-top: 10px; font-size: 10px; color: var(--ink-dim); opacity: 0.7; line-height: 1.5; }
 
 /* ---------- nav arrows ---------- */
 .nav-btn {

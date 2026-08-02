@@ -81,10 +81,11 @@ class Card(_Strict):
 class Closing(_Strict):
     eyebrow: str
     mark_lines: list[str]
-    rows: list[tuple[str, str]]
+    links: list[Link]
     stamp: str
     restart: str
     sources: list[str]
+    disclaimer: str
 
 
 class EditionContent(_Strict):

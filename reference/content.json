@@ -155,13 +155,13 @@
   "closing": {
     "eyebrow": "SUMMARY",
     "mark_lines": ["오늘의", "BTC"],
-    "rows": [
-      ["수집 기간", "최근 24시간"],
-      ["소스", "my-news · my-youtube"],
-      ["하이라이트", "10건"]
+    "links": [
+      {"label": "유튜브 구독하기", "href": "https://www.youtube.com/channel/UCct2Ysql19jBGZbiJxg2ANQ"},
+      {"label": "카톡 오픈채팅 참여", "href": "https://open.kakao.com/o/ghuvwNKh"}
     ],
     "stamp": "BTC DAILY DIGEST",
     "restart": "처음부터 다시 보기 ↺",
-    "sources": ["CryptoSlate", "TokenPost", "BlockMedia", "Decrypt", "Reddit", "Coin Bureau"]
+    "sources": ["CryptoSlate", "TokenPost", "BlockMedia", "Decrypt", "Reddit", "Coin Bureau"],
+    "disclaimer": "카드뉴스 속 기사 내용은 한입비트코인의 의견과는 무관합니다."
   }
 }

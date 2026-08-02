@@ -29,10 +29,11 @@ export interface Card {
 export interface Closing {
   eyebrow: string;
   mark_lines: string[];
-  rows: string[][];
+  links: { label: string; href: string }[];
   stamp: string;
   restart: string;
   sources: string[];
+  disclaimer: string;
 }
 
 export interface EditionContent {
@@ -218,6 +219,7 @@ function ClosingSlide({
   onRestart: () => void;
 }) {
   const lines = closing.mark_lines;
+  const links = closing.links ?? [];
   return (
     <div className={'slide' + (isActive ? ' is-active' : '')} role="group">
       <div className="card is-closing">
@@ -234,14 +236,21 @@ function ClosingSlide({
             <em>{lines[lines.length - 1]}</em>
           </h2>
 
-          <div className="totals">
-            {closing.rows.map((row, i) => (
-              <div className="trow" key={i}>
-                <span>{row[0]}</span>
-                <b>{row[1]}</b>
-              </div>
-            ))}
-          </div>
+          {links.length > 0 && (
+            <div className="closing-links">
+              {links.map((l) => (
+                <a
+                  key={l.href}
+                  className="closing-link"
+                  href={l.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {l.label}
+                </a>
+              ))}
+            </div>
+          )}
 
           <span className="stamp">
             <img className="stamp-logo" src={hanipLogo} alt="" />
@@ -257,6 +266,8 @@ function ClosingSlide({
             // they render as text — the reference's <a> markup had nothing to link to.
             <div className="src-list">{'출처 — ' + closing.sources.join(' · ')}</div>
           )}
+
+          <p className="disclaimer">{closing.disclaimer}</p>
         </div>
       </div>
     </div>
