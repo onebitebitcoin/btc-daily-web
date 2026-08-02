@@ -41,3 +41,6 @@ frontend/dist/
 # 개발 산출물
 debug.log
 .playwright-mcp/
+
+# launchd 무인 발행 로그
+/logs/
