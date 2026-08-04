@@ -26,7 +26,15 @@ export function CardArt({ card, date, media, shouldLoad }: CardArtProps) {
     );
   }
 
-  const img = <img src={src} alt={card.title} loading="lazy" decoding="async" />;
+  const img = (
+    <>
+      {/* 원본을 자르지 않고(contain) 보여주면 띠의 남는 자리가 빈 색면으로 남는다.
+          같은 이미지를 흐리게 깔아 그 자리를 메운다 — 브라우저 캐시를 그대로
+          재사용하므로 추가로 받는 바이트는 없다. */}
+      <span className="art-fill" style={{ backgroundImage: `url("${src}")` }} aria-hidden="true" />
+      <img src={src} alt={card.title} loading="lazy" decoding="async" />
+    </>
+  );
   const badge =
     card.media.href && card.media.cta ? (
       <span className="art-badge">

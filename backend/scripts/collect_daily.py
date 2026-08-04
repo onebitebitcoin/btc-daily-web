@@ -17,6 +17,7 @@ Usage: python scripts/collect_daily.py [--date YYYY-MM-DD] [--out PATH]
 import argparse
 import datetime
 import json
+import sys
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -28,7 +29,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_CONTENT = REPO_ROOT / "frontend" / "src" / "fixtures" / "content.json"
 
 DEFAULT_NEWS_URL = "http://localhost:8000/api/news?asset=btc&limit=100"
-DEFAULT_YOUTUBE_URL = "http://localhost:23456/api/queue"
+# full=1 없으면 my-youtube 가 summary/highlights/description 을 뺀 경량 응답을 준다.
+# 그러면 filter_videos 의 `summary` 조건에 전부 걸려 후보가 조용히 0건이 된다(2026-08-05).
+DEFAULT_YOUTUBE_URL = "http://localhost:23456/api/queue?full=1"
 NEWS_LIMIT = 20
 VIDEO_LIMIT = 5
 # 영상 창은 게시 시각 기준 48h. 24h 로 좁히면 my-youtube 가 요약을 늦게 끝낸 영상이
@@ -73,6 +76,23 @@ def filter_videos(items: list[dict[str, Any]], now: datetime.datetime) -> list[d
     ]
     fresh.sort(key=lambda v: v.get("view_count", 0), reverse=True)
     return fresh[:VIDEO_LIMIT]
+
+
+def warn_video_drought(items: list[dict[str, Any]]) -> None:
+    """영상 후보가 0건일 때 원인을 stderr 로 구분해 알린다.
+
+    소스 스키마가 바뀌어 summary 가 통째로 빠지면 filter_videos 가 전부 걸러내는데,
+    그대로 두면 '오늘은 영상이 없었나 보다'로 읽혀 넘어간다(2026-08-05 실제 사례).
+    """
+    btc = [v for v in items if v.get("topic") == "비트코인"]
+    if btc and not any(v.get("summary") for v in btc):
+        print(
+            f"WARNING: 비트코인 영상 {len(btc)}건이 있는데 summary 가 하나도 없다 — "
+            "my-youtube 응답에서 요약이 빠졌는지 확인하라(--youtube-url 에 full=1 필요).",
+            file=sys.stderr,
+        )
+    else:
+        print("WARNING: 창 안에 비트코인 영상 후보가 없다 — 뉴스만으로 구성된다.", file=sys.stderr)
 
 
 def apply_date_to_cover(cover_fixed: dict[str, Any], date: datetime.date) -> dict[str, Any]:
@@ -165,6 +185,11 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None) -> P
     videos = filter_videos(yt_raw, window_end_utc)
     for video in videos:
         video["thumbnail_url"] = f"https://i.ytimg.com/vi/{video['id']}/hqdefault.jpg"
+
+    # 후보 0건은 "그날 영상이 없었다"일 수도, 소스 응답이 바뀐 것일 수도 있다.
+    # 조용히 넘어가면 뉴스만 10장인 에디션이 그대로 나가므로 이유를 구분해 알린다.
+    if not videos:
+        warn_video_drought(yt_raw)
 
     if not news and not videos:
         raise SystemExit(
