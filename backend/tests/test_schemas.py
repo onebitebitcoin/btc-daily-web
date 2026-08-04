@@ -154,8 +154,8 @@ def test_trending_item_accepts_source_links() -> None:
     payload = reference_payload()
     trending = _trending_block()
     trending["items"][0]["links"] = [
-        {"label": "토큰포스트 원문", "href": "https://a.example/1"},
-        {"label": "CoinDesk 원문", "href": "https://b.example/2"},
+        {"title": "콜드카드 취약점 기사", "href": "https://a.example/1", "source": "토큰포스트"},
+        {"title": "Coldcard exploit", "href": "https://b.example/2", "source": "CoinDesk"},
     ]
     payload["trending"] = trending
 
@@ -164,13 +164,39 @@ def test_trending_item_accepts_source_links() -> None:
     links = content.trending.items[0].links  # type: ignore[union-attr]
     assert links is not None
     assert [link.href for link in links] == ["https://a.example/1", "https://b.example/2"]
+    assert links[0].title == "콜드카드 취약점 기사"
+    assert links[0].source == "토큰포스트"
 
 
-def test_trending_item_link_requires_both_label_and_href() -> None:
-    """href 없는 링크가 통과하면 눌리지 않는 줄이 카드에 박힌다."""
+def test_trending_link_source_is_optional() -> None:
     payload = reference_payload()
     trending = _trending_block()
-    trending["items"][0]["links"] = [{"label": "라벨만 있음"}]
+    trending["items"][0]["links"] = [{"title": "출처 없는 기사", "href": "https://a.example/1"}]
+    payload["trending"] = trending
+
+    content = EditionContent.model_validate(payload)
+
+    assert content.trending.items[0].links[0].source is None  # type: ignore[union-attr,index]
+
+
+def test_trending_link_requires_both_title_and_href() -> None:
+    """제목만 있고 href 가 없으면 눌리지 않는 줄이 목록에 박힌다 — 그 반대도 마찬가지."""
+    payload = reference_payload()
+
+    for broken in ({"title": "제목만 있음"}, {"href": "https://a.example/1"}):
+        trending = _trending_block()
+        trending["items"][0]["links"] = [broken]
+        payload["trending"] = trending
+
+        with pytest.raises(ValidationError):
+            EditionContent.model_validate(payload)
+
+
+def test_trending_link_rejects_the_old_label_shape() -> None:
+    """카드용 Link(label/href)를 그대로 넣으면 제목이 사라진 채 발행된다 — 막는다."""
+    payload = reference_payload()
+    trending = _trending_block()
+    trending["items"][0]["links"] = [{"label": "토큰포스트 원문", "href": "https://a.example/1"}]
     payload["trending"] = trending
 
     with pytest.raises(ValidationError):

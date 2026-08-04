@@ -51,7 +51,10 @@
 | | `items[].heat` | int (0~100) | ✓ | 1위가 100이 되도록 정규화. 카드에서 막대 길이로 렌더 |
 | | `items[].mentions` | int | ✓ | 그 토픽을 다룬 후보 기사/영상 수 |
 | | `items[].sources` | int | ✓ | 서로 다른 매체 수 |
-| | `items[].links` | list[Link] \| null | | 펼침 목록(새 탭 원문). 없으면 그 줄은 안 눌린다. draft의 `trending_candidates[].articles`에서 옮긴다 |
+| | `items[].links` | list[TrendingLink] \| null | | 펼침 목록(새 탭 원문). 없으면 그 줄은 안 눌린다. draft의 `trending_candidates[].articles`에서 옮긴다 |
+| | `items[].links[].title` | str | ✓ | 기사 원제 그대로. **카드의 `link`와 달리 label이 아니다** — 목록에서는 무슨 기사인지가 먼저 보여야 한다 |
+| | `items[].links[].href` | str | ✓ | 원문 URL |
+| | `items[].links[].source` | str \| null | | 매체명. 제목 아래 작게 붙는다 |
 
 `trending`은 **단순 언급 빈도가 아니라 "무엇이 진짜 핫했는가"**를 보여주는 게
 목적이다. `backend/app/trending.py`의 `rank_topics`가 매체 다양성에 지수를 줘

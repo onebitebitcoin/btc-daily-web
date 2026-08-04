@@ -58,7 +58,7 @@ describe('TrendingSlide', () => {
 
   it('offers 펼치기 only on rows that actually have source links', () => {
     const trending = buildTrending();
-    trending.items[0].links = [{ label: '토큰포스트 원문', href: 'https://a.example/1' }];
+    trending.items[0].links = [{ title: '콜드카드 취약점 기사', href: 'https://a.example/1', source: '토큰포스트' }];
 
     const { container } = render(
       <TrendingSlide trending={trending} isActive onOpenTopic={() => {}} />,
@@ -73,7 +73,7 @@ describe('TrendingSlide', () => {
 
   it('hands the clicked topic to the parent so the sheet can open', () => {
     const trending = buildTrending();
-    trending.items[2].links = [{ label: 'CoinDesk 원문', href: 'https://a.example/3' }];
+    trending.items[2].links = [{ title: 'Coldcard exploit explained', href: 'https://a.example/3', source: 'CoinDesk' }];
     const onOpenTopic = vi.fn();
 
     const { container } = render(

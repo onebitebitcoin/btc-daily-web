@@ -42,8 +42,8 @@ export interface TrendingItem {
   heat: number;
   mentions: number;
   sources: number;
-  /** 펼쳤을 때 보여줄 원문 링크. 트렌딩 도입 초기 발행분에는 없다. */
-  links?: { label: string; href: string }[] | null;
+  /** 펼쳤을 때 보여줄 원문. 제목이 본문이고 매체는 근거다. 초기 발행분에는 없다. */
+  links?: { title: string; href: string; source?: string | null }[] | null;
 }
 
 /** 24시간 트렌딩 토픽 TOP 10 카드. 기존 발행분 9편에는 없는 선택 블록이라

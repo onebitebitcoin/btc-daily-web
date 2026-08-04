@@ -395,7 +395,20 @@ body {
 .trending-sheet-figures {
   margin: 0; font-family: 'Card Text', monospace; font-size: 12px; color: var(--ink-dim);
 }
-.trending-sheet-links { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+/* 기사 여러 건을 훑는 목록이라 CTA 알약(.link-cta)이 아니라 줄 단위로 쌓는다 —
+   제목이 두 줄까지 온전히 보여야 무슨 기사인지 알 수 있다. */
+.trending-sheet-links { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.trending-sheet-links li { border-top: 1px solid var(--line); }
+.trending-link {
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 10px 2px; text-decoration: none;
+}
+.trending-link-title { font-size: 13.5px; line-height: 1.45; color: var(--ink); }
+.trending-link-source {
+  font-family: 'Card Text', monospace; font-size: 10px; color: var(--ink-dim);
+}
+.trending-link:hover .trending-link-title,
+.trending-link:focus-visible .trending-link-title { color: var(--accent2); }
 .sheet-close {
   margin-top: 14px; font-family: 'Card Text', monospace; font-size: 12.5px;
   color: var(--ink); background: var(--chip-bg); border: 1px solid var(--line);

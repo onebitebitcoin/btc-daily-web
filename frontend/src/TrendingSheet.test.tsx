@@ -11,8 +11,8 @@ function buildItem(overrides: Partial<TrendingItem> = {}): TrendingItem {
     mentions: 30,
     sources: 13,
     links: [
-      { label: '토큰포스트 원문', href: 'https://a.example/1' },
-      { label: 'CoinDesk 원문', href: 'https://b.example/2' },
+      { title: '콜드카드 지갑의 키 생성 취약점, 1억 달러 피해', href: 'https://a.example/1', source: '토큰포스트' },
+      { title: 'Ledger Says Coldcard Exploit Shows Wallet Risk', href: 'https://b.example/2', source: 'CoinDesk' },
     ],
     ...overrides,
   };
@@ -31,7 +31,32 @@ describe('TrendingSheet', () => {
     const links = container.querySelectorAll('.trending-sheet-links a');
     expect(links).toHaveLength(2);
     expect(links[0].getAttribute('href')).toBe('https://a.example/1');
-    expect(links[0].textContent).toContain('토큰포스트 원문');
+  });
+
+  it('shows the article headline, not just the outlet name', () => {
+    const { container } = render(<TrendingSheet item={buildItem()} onClose={() => {}} />);
+
+    const titles = container.querySelectorAll('.trending-link-title');
+    expect(titles[0].textContent).toBe('콜드카드 지갑의 키 생성 취약점, 1억 달러 피해');
+    expect(titles[1].textContent).toBe('Ledger Says Coldcard Exploit Shows Wallet Risk');
+  });
+
+  it('credits the outlet alongside the headline', () => {
+    const { container } = render(<TrendingSheet item={buildItem()} onClose={() => {}} />);
+
+    const sources = container.querySelectorAll('.trending-link-source');
+    expect([...sources].map((s) => s.textContent)).toEqual(['토큰포스트', 'CoinDesk']);
+  });
+
+  it('omits the outlet line when the article has no source', () => {
+    const item = buildItem({
+      links: [{ title: '출처 없는 기사', href: 'https://a.example/1' }],
+    });
+
+    const { container } = render(<TrendingSheet item={item} onClose={() => {}} />);
+
+    expect(container.querySelector('.trending-link-title')?.textContent).toBe('출처 없는 기사');
+    expect(container.querySelector('.trending-link-source')).toBeNull();
   });
 
   it('opens each link in a new tab without leaking the opener', () => {

@@ -88,6 +88,20 @@ class Closing(_Strict):
     disclaimer: str
 
 
+class TrendingLink(_Strict):
+    """펼침 목록의 원문 하나.
+
+    카드의 `Link`(label/href)를 재사용하지 않는 이유: 카드 링크는 "토큰포스트 원문"
+    같은 단일 CTA라 라벨 한 줄이면 되지만, 여기는 기사 여러 건을 훑는 목록이다.
+    무슨 기사인지가 먼저 보여야 하고 매체는 그 근거로 따라붙는다 — 라벨 하나로
+    합치면 제목이 통째로 사라진다.
+    """
+
+    title: str
+    href: str
+    source: str | None = None
+
+
 class TrendingItem(_Strict):
     rank: int
     topic: str
@@ -96,7 +110,7 @@ class TrendingItem(_Strict):
     sources: int
     # 펼침 목록. 없으면 그 줄은 펼칠 수 없는 상태로 렌더된다(트렌딩 도입 초기
     # 발행분이 이 필드 없이 나갔으므로 optional 이어야 한다).
-    links: list[Link] | None = None
+    links: list[TrendingLink] | None = None
 
 
 class Trending(_Strict):

@@ -47,20 +47,21 @@ export function TrendingSheet({ item, onClose }: TrendingSheetProps) {
           </p>
 
           {links.length > 0 ? (
-            <div className="trending-sheet-links">
+            <ul className="trending-sheet-links">
               {links.map((link, i) => (
-                <a
-                  className="link-cta"
-                  key={i}
-                  href={link.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <span className="tri" />
-                  {link.label}
-                </a>
+                <li key={i}>
+                  <a
+                    className="trending-link"
+                    href={link.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <span className="trending-link-title">{link.title}</span>
+                    {link.source && <span className="trending-link-source">{link.source}</span>}
+                  </a>
+                </li>
               ))}
-            </div>
+            </ul>
           ) : (
             <p className="trending-sheet-figures">이 토픽은 원문 목록이 없습니다.</p>
           )}
