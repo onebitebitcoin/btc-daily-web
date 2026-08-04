@@ -1,3 +1,27 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* 라이트 모드 액센트 기본값.
+
+   에디션 테마(useThemeVars)는 `_light` 접미사가 붙은 키만 라이트 모드로 넘기는데
+   accent/accent_strong 에는 그 키가 없다. 그래서 다크용 앰버(#f2a93b/#ffcf7f)가
+   밝은 배경(--bg #e8e0d4, --paper2 #e9e2d2)에 그대로 얹혀 대비가 1.1:1 까지 떨어졌고,
+   활성 날짜 태그와 브랜드 워드마크가 사실상 보이지 않았다.
+
+   여기서 잡는 이유: 같은 조합이 strip/calendar/deck 세 파일에 흩어져 있어 개별로
+   덧칠하면 새로 쓰는 곳마다 또 깨진다. 변수 한 곳에서 막는다.
+   대비 — accent-strong 5.5:1(본문 AA), accent 3.2:1(비텍스트 AA).
+
+   테마 JSON 이 accent_light/accent_strong_light 를 실어 보내면 useThemeVars 가
+   head 뒤쪽에 주입하므로 그쪽이 이긴다. 여기는 어디까지나 기본값이다. */
+:root[data-theme='light'] {
+  --accent: #a86f14;
+  --accent-strong: #7a4e05;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    --accent: #a86f14;
+    --accent-strong: #7a4e05;
+  }
+}

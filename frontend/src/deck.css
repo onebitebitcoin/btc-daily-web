@@ -71,8 +71,16 @@ body {
 }
 /* The original had a light-theme .counter override written as
    `:root[data-theme="light"] .counter, @media (...) { ... }` — a selector list
-   containing an at-rule, which is invalid CSS, so browsers dropped it. Omitted
-   here on purpose: reproducing it would change the rendering, not preserve it. */
+   containing an at-rule, which is invalid CSS, so browsers dropped it.
+   흰색 55% 는 라이트 모드 배경(#e8e0d4)에서 안 보이므로, 이번엔 유효한 문법으로 되살린다. */
+:root[data-theme='light'] .counter {
+  color: var(--ink-dim);
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) .counter {
+    color: var(--ink-dim);
+  }
+}
 
 /* ---------- track (snap scroller) ---------- */
 .track {
@@ -154,7 +162,9 @@ body {
 .art-blank {
   display: flex; align-items: center; justify-content: center;
   font-family: 'Card Display', sans-serif; font-weight: 800; font-size: 56px;
-  color: var(--accent-strong); background: #0d0e11; opacity: 0.9;
+  /* 배경이 하드코딩된 다크 서피스라 전경도 다크용 앰버로 고정한다. --accent-strong 을
+     쓰면 라이트 모드에서 어두워진 값이 들어와 검정 위 검정이 된다(2.7:1). */
+  color: #ffcf7f; background: #0d0e11; opacity: 0.9;
   text-shadow: 0 0 30px var(--glow);
 }
 
