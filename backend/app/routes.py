@@ -27,6 +27,21 @@ EDITION_CACHE_CONTROL = "public, max-age=300, stale-while-revalidate=86400"
 IMAGE_CACHE_CONTROL = "public, max-age=86400, stale-while-revalidate=604800"
 
 
+def etag_matches(if_none_match: str | None, etag: str) -> bool:
+    """RFC 7232의 weak comparison.
+
+    앞단 nginx가 gzip을 적용하면 강한 ETag `"abc"`를 약한 `W/"abc"`로 바꿔
+    내보낸다. 클라이언트는 받은 값을 그대로 돌려주므로 문자열을 그대로 비교하면
+    영원히 어긋나고 304가 한 번도 안 나간다(프로덕션에서 실제로 그랬다).
+    """
+    if not if_none_match:
+        return False
+    if if_none_match.strip() == "*":
+        return True
+    sent = {tag.strip().removeprefix("W/") for tag in if_none_match.split(",")}
+    return etag.removeprefix("W/") in sent
+
+
 def json_with_etag(request: Request, payload: Any, cache_control: str) -> Response:
     """ETag를 붙이고, 클라이언트가 같은 값을 들고 있으면 304로 끊는다.
 
@@ -36,7 +51,7 @@ def json_with_etag(request: Request, payload: Any, cache_control: str) -> Respon
     canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     etag = f'"{hashlib.sha256(canonical.encode()).hexdigest()[:32]}"'
     headers = {"ETag": etag, "Cache-Control": cache_control}
-    if request.headers.get("if-none-match") == etag:
+    if etag_matches(request.headers.get("if-none-match"), etag):
         return Response(status_code=304, headers=headers)
     return JSONResponse(payload, headers=headers)
 

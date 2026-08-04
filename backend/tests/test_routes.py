@@ -239,6 +239,37 @@ def test_matching_if_none_match_returns_304_with_empty_body(client) -> None:
     assert response.content == b""
 
 
+def test_weak_etag_from_gzipping_proxy_still_matches(client) -> None:
+    """앞단 nginx가 gzip을 걸면 ETag에 W/ 접두사를 붙여 내보내고, 클라이언트는
+    그 값을 그대로 돌려준다. 강하게 비교하면 304가 영원히 안 나간다."""
+    seed_edition(client.session_factory, reference_payload("2026-07-30"))
+    etag = client.get("/api/editions/2026-07-30").headers["etag"]
+
+    response = client.get("/api/editions/2026-07-30", headers={"If-None-Match": f"W/{etag}"})
+
+    assert response.status_code == 304
+
+
+def test_if_none_match_accepts_a_list_of_tags(client) -> None:
+    seed_edition(client.session_factory, reference_payload("2026-07-30"))
+    etag = client.get("/api/editions/2026-07-30").headers["etag"]
+
+    response = client.get(
+        "/api/editions/2026-07-30", headers={"If-None-Match": f'"stale", {etag}'}
+    )
+
+    assert response.status_code == 304
+
+
+def test_non_matching_if_none_match_returns_the_body(client) -> None:
+    seed_edition(client.session_factory, reference_payload("2026-07-30"))
+
+    response = client.get("/api/editions/2026-07-30", headers={"If-None-Match": '"nope"'})
+
+    assert response.status_code == 200
+    assert response.json()["meta"]["date"] == "2026-07-30"
+
+
 def test_etag_changes_after_republish(client) -> None:
     override_admin_key(client, "secret")
     headers = {"Authorization": "Bearer secret"}
