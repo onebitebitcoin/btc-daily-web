@@ -1,4 +1,4 @@
-import type { EditionContent } from './CardDeck';
+import type { EditionContent } from './content';
 
 export interface EditionSummary {
   date: string;

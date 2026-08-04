@@ -1,0 +1,85 @@
+/* 피드 위에 고정되는 크롬(진행바·브랜드·날짜 칩)과 전체 화면 상태 표시.
+   strip.css(가로 날짜 pill 줄)를 대체한다 — 세로 피드에서는 pill 줄이 화면을
+   먹기만 하고 문법에도 안 맞아서 칩 하나 + 캘린더 시트로 접었다. */
+
+.progress-bar {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 6;
+  display: flex; gap: 4px; padding: calc(12px + env(safe-area-inset-top)) 16px 0;
+}
+.progress-bar i {
+  flex: 1; height: 3px; border-radius: 2px; background: var(--seg-off);
+  cursor: pointer; overflow: hidden; position: relative;
+}
+.progress-bar i b {
+  display: block; height: 100%; width: 0%; background: var(--accent);
+  transition: width 0.25s ease;
+}
+.progress-bar i.done b { width: 100%; }
+
+.topline {
+  position: absolute; top: calc(24px + env(safe-area-inset-top)); left: 0; right: 0; z-index: 6;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 16px;
+  pointer-events: none;
+}
+.topline > * { pointer-events: auto; }
+
+/* 스크림 위에 얹히므로 항상 밝은 글자로 고정한다. --accent-strong 은 라이트
+   테마에서 어두운 값이 들어와 스크림 위에서 대비가 무너진다. */
+.brand {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: 'Card Display', sans-serif; font-weight: 700; letter-spacing: 0.04em;
+  font-size: 13px; color: #ffd79a; text-transform: uppercase;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+}
+.brand-logo { width: 18px; height: 18px; border-radius: 50%; flex: 0 0 auto; }
+
+.date-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: 'Card Text', monospace; font-size: 12px; letter-spacing: 0.03em;
+  font-variant-numeric: tabular-nums; font-weight: 700;
+  color: var(--accent-strong);
+  background: rgba(10, 11, 12, 0.55);
+  border: 1px solid var(--line);
+  border-radius: 20px; padding: 5px 11px; cursor: pointer;
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+}
+.date-chip:hover, .date-chip:focus-visible { border-color: var(--accent); }
+
+/* 라이트 모드에서는 어두운 반투명 배경이 배경과 충돌하므로 밝게 뒤집는다. */
+:root[data-theme='light'] .date-chip { background: rgba(255, 255, 255, 0.75); }
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) .date-chip { background: rgba(255, 255, 255, 0.75); }
+}
+
+/* 데스크톱에서는 카드가 가운데 9:16 프레임이라, 크롬도 그 폭 안으로 들여야
+   창 끝까지 늘어난 진행바가 카드와 무관해 보이지 않는다. */
+@media (min-width: 561px) {
+  .progress-bar, .topline {
+    left: 50%; right: auto; transform: translateX(-50%);
+    width: var(--card-w);
+    padding-left: 14px; padding-right: 14px;
+  }
+  .progress-bar { top: calc((100dvh - var(--card-h)) / 2 + 12px); }
+  .topline { top: calc((100dvh - var(--card-h)) / 2 + 26px); }
+}
+
+.cal-sheet { align-items: center; }
+.cal-sheet .cal { width: 100%; }
+
+.feed-error {
+  position: absolute; bottom: calc(18px + env(safe-area-inset-bottom));
+  left: 16px; right: 16px; z-index: 7;
+  font-size: 12px; color: var(--ink-dim); text-align: center;
+}
+
+.status-screen {
+  height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px;
+  font-family: 'Card Text', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif;
+  color: var(--ink, #201c14);
+}

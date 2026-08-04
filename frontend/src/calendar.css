@@ -1,4 +1,4 @@
-/* Shared by /calendar (no <CardDeck>, no theme vars) and the DateStrip popover
+/* Shared by /calendar (no feed, no theme vars) and the FeedChrome date sheet
    (theme vars present). Every var() below carries a hardcoded fallback for the
    standalone-page case. */
 .calendar-shell {

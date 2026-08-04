@@ -1,8 +1,14 @@
 import datetime
+import io
 import json
 from pathlib import Path
 from typing import Any
 
+import httpx
+import pytest
+from PIL import Image
+
+from app import imgproxy
 from app.config import Settings, get_settings
 from app.models import Edition
 
@@ -31,6 +37,23 @@ def seed_edition(session_factory, content: dict[str, Any]) -> None:
 
 def override_admin_key(client, key: str) -> None:
     client.app.dependency_overrides[get_settings] = lambda: Settings(admin_api_key=key)
+
+
+def override_img_cache_dir(client, path: Path) -> None:
+    client.app.dependency_overrides[get_settings] = lambda: Settings(img_cache_dir=str(path))
+
+
+def seed_edition_with_remote_image(session_factory, url: str, num: int = 1) -> None:
+    payload = reference_payload("2026-07-30")
+    payload["cards"][num - 1]["num"] = num
+    payload["cards"][num - 1]["media"] = {"image": url, "href": None, "cta": None}
+    seed_edition(session_factory, payload)
+
+
+def png_bytes(size: tuple[int, int] = (1600, 900)) -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", size, (10, 120, 200)).save(buf, format="PNG")
+    return buf.getvalue()
 
 
 # ---- US-202: GET /api/editions (list) ----
@@ -191,3 +214,162 @@ def test_post_creates_and_second_post_upserts_in_place(client) -> None:
 
     list_response = client.get("/api/editions")
     assert len(list_response.json()) == 1
+
+
+# ---- 전송량 절감: ETag / 조건부 요청 ----
+
+
+def test_edition_response_carries_etag_and_cache_control(client) -> None:
+    seed_edition(client.session_factory, reference_payload("2026-07-30"))
+
+    response = client.get("/api/editions/2026-07-30")
+
+    assert response.headers["etag"].startswith('"')
+    assert "max-age" in response.headers["cache-control"]
+
+
+def test_matching_if_none_match_returns_304_with_empty_body(client) -> None:
+    """재방문 시 50KB를 다시 받지 않는다는 것이 이 엔드포인트의 요점이다."""
+    seed_edition(client.session_factory, reference_payload("2026-07-30"))
+    etag = client.get("/api/editions/2026-07-30").headers["etag"]
+
+    response = client.get("/api/editions/2026-07-30", headers={"If-None-Match": etag})
+
+    assert response.status_code == 304
+    assert response.content == b""
+
+
+def test_etag_changes_after_republish(client) -> None:
+    override_admin_key(client, "secret")
+    headers = {"Authorization": "Bearer secret"}
+    client.post("/api/editions", json=reference_payload("2026-07-30"), headers=headers)
+    before = client.get("/api/editions/2026-07-30").headers["etag"]
+
+    updated = reference_payload("2026-07-30")
+    updated["cards"][0]["title"] = "바뀐 헤드라인"
+    client.post("/api/editions", json=updated, headers=headers)
+
+    assert client.get("/api/editions/2026-07-30").headers["etag"] != before
+
+
+def test_editions_list_also_supports_conditional_requests(client) -> None:
+    seed_edition(client.session_factory, reference_payload("2026-07-30"))
+    etag = client.get("/api/editions").headers["etag"]
+
+    response = client.get("/api/editions", headers={"If-None-Match": etag})
+
+    assert response.status_code == 304
+
+
+def test_latest_edition_also_supports_conditional_requests(client) -> None:
+    seed_edition(client.session_factory, reference_payload("2026-07-30"))
+    etag = client.get("/api/editions/latest").headers["etag"]
+
+    response = client.get("/api/editions/latest", headers={"If-None-Match": etag})
+
+    assert response.status_code == 304
+
+
+# ---- 이미지 프록시 GET /api/img/{date}/{num} ----
+
+
+def test_img_returns_webp_smaller_than_source(client, tmp_path, monkeypatch) -> None:
+    source = png_bytes((1600, 900))
+    seed_edition_with_remote_image(client.session_factory, "https://cdn.example/a.png")
+    override_img_cache_dir(client, tmp_path)
+    monkeypatch.setattr(imgproxy, "fetch_source", lambda url: source)
+
+    response = client.get("/api/img/2026-07-30/1")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/webp"
+    assert len(response.content) < len(source)
+    assert Image.open(io.BytesIO(response.content)).size == (800, 450)
+
+
+def test_img_honours_width_parameter(client, tmp_path, monkeypatch) -> None:
+    seed_edition_with_remote_image(client.session_factory, "https://cdn.example/a.png")
+    override_img_cache_dir(client, tmp_path)
+    monkeypatch.setattr(imgproxy, "fetch_source", lambda url: png_bytes((1600, 900)))
+
+    response = client.get("/api/img/2026-07-30/1?w=480")
+
+    assert Image.open(io.BytesIO(response.content)).size == (480, 270)
+
+
+def test_img_second_request_is_served_from_cache_without_refetch(
+    client, tmp_path, monkeypatch
+) -> None:
+    calls: list[str] = []
+
+    def counting_fetch(url: str) -> bytes:
+        calls.append(url)
+        return png_bytes()
+
+    seed_edition_with_remote_image(client.session_factory, "https://cdn.example/a.png")
+    override_img_cache_dir(client, tmp_path)
+    monkeypatch.setattr(imgproxy, "fetch_source", counting_fetch)
+
+    client.get("/api/img/2026-07-30/1")
+    client.get("/api/img/2026-07-30/1")
+
+    assert len(calls) == 1
+
+
+def test_img_sets_long_cache_control(client, tmp_path, monkeypatch) -> None:
+    seed_edition_with_remote_image(client.session_factory, "https://cdn.example/a.png")
+    override_img_cache_dir(client, tmp_path)
+    monkeypatch.setattr(imgproxy, "fetch_source", lambda url: png_bytes())
+
+    response = client.get("/api/img/2026-07-30/1")
+
+    assert "max-age=86400" in response.headers["cache-control"]
+
+
+def test_img_404_for_unknown_date(client, tmp_path) -> None:
+    override_img_cache_dir(client, tmp_path)
+
+    response = client.get("/api/img/2026-01-01/1")
+
+    assert response.status_code == 404
+
+
+def test_img_404_when_card_uses_bundled_stem(client, tmp_path) -> None:
+    """stem 이미지는 프론트가 번들에서 직접 쓴다 — 프록시할 원본이 없다."""
+    seed_edition(client.session_factory, reference_payload("2026-07-30"))
+    override_img_cache_dir(client, tmp_path)
+
+    response = client.get("/api/img/2026-07-30/1")
+
+    assert response.status_code == 404
+
+
+def test_img_502_when_source_fetch_fails(client, tmp_path, monkeypatch) -> None:
+    def failing_fetch(url: str) -> bytes:
+        raise httpx.ConnectError("boom")
+
+    seed_edition_with_remote_image(client.session_factory, "https://cdn.example/a.png")
+    override_img_cache_dir(client, tmp_path)
+    monkeypatch.setattr(imgproxy, "fetch_source", failing_fetch)
+
+    response = client.get("/api/img/2026-07-30/1")
+
+    assert response.status_code == 502
+
+
+def test_img_502_when_source_is_not_an_image(client, tmp_path, monkeypatch) -> None:
+    seed_edition_with_remote_image(client.session_factory, "https://cdn.example/a.png")
+    override_img_cache_dir(client, tmp_path)
+    monkeypatch.setattr(imgproxy, "fetch_source", lambda url: b"<html>404</html>")
+
+    response = client.get("/api/img/2026-07-30/1")
+
+    assert response.status_code == 502
+
+
+@pytest.mark.parametrize("path", ["/api/img/2026-07-30/0", "/api/img/2026-07-30/99"])
+def test_img_404_for_out_of_range_card_numbers(client, tmp_path, path: str) -> None:
+    seed_edition_with_remote_image(client.session_factory, "https://cdn.example/a.png")
+    override_img_cache_dir(client, tmp_path)
+
+    assert client.get(path).status_code == 404

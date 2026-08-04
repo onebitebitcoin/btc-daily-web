@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     # ship a usable default secret.
     admin_api_key: str = ""
     og_cache_dir: str = "/data/og"
+    img_cache_dir: str = "/data/img"
 
 
 @lru_cache

@@ -1,17 +1,17 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Navigate, useParams } from 'react-router-dom';
-import { CardDeck, type EditionContent } from './CardDeck';
-import { DateStrip } from './DateStrip';
-import { NotFoundError, errorMessage, fetchEdition, fetchLatestEdition } from './api';
-import { bundledMedia } from './media';
-import './strip.css';
+import { ShortsFeed } from './ShortsFeed';
+import { NotFoundError, errorMessage, fetchLatestEdition } from './api';
+import './chrome.css';
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export function StatusScreen({ children }: { children: ReactNode }) {
   return <div className="status-screen">{children}</div>;
 }
 
 /** `/` has no date yet — fetch the latest edition just to learn its date, then
- *  hand off to the real route so EditionPage below is the single fetch path. */
+ *  hand off to the real route so the feed has a concrete starting point. */
 export function RootRedirect() {
   const [date, setDate] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -37,35 +37,13 @@ export function RootRedirect() {
 }
 
 export default function EditionPage() {
-  const { date } = useParams<{ date: string }>();
-  const [content, setContent] = useState<EditionContent | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { date, index } = useParams<{ date: string; index?: string }>();
 
-  useEffect(() => {
-    if (!date) return;
-    setContent(null);
-    setError(null);
-    let cancelled = false;
-    fetchEdition(date)
-      .then((edition) => {
-        if (!cancelled) setContent(edition);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setError(errorMessage(err));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [date]);
+  if (!date || !ISO_DATE.test(date)) return <StatusScreen>잘못된 경로입니다.</StatusScreen>;
 
-  if (!date) return <StatusScreen>잘못된 경로입니다.</StatusScreen>;
-  if (error) return <StatusScreen>{error}</StatusScreen>;
-  if (!content) return <StatusScreen>불러오는 중…</StatusScreen>;
+  // 인덱스는 공유 링크에서만 오는 선택 값이다. 숫자가 아니면 표지에서 시작한다.
+  const parsed = Number(index);
+  const startIndex = Number.isInteger(parsed) && parsed > 0 ? parsed : 0;
 
-  return (
-    <div className="shell">
-      <DateStrip activeDate={date} />
-      <CardDeck content={content} media={bundledMedia} />
-    </div>
-  );
+  return <ShortsFeed startDate={date} startIndex={startIndex} />;
 }

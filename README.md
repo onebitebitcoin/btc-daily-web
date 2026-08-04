@@ -1,7 +1,8 @@
 # btc-daily-web
 
-매일 한 편씩 쌓이는 비트코인 카드뉴스 웹사이트. 상단 날짜 스트립으로 과거 편집본을
-넘겨보고, 카드 10장을 스와이프로 읽는다.
+매일 한 편씩 쌓이는 비트코인 카드뉴스 웹사이트. 쇼츠처럼 세로로 스크롤해 카드
+10장을 읽고, 마지막 카드 다음에 바로 지난 날짜가 이어진다(최대 7일). 특정 날짜는
+상단 날짜 칩의 달력에서 고른다.
 
 - 프로덕션: <https://daily.onebitebitcoin.com>
 - 스펙: [SPEC.md](SPEC.md) · 콘텐츠 계약: [CONTENT_CONTRACT.md](CONTENT_CONTRACT.md)
@@ -10,9 +11,9 @@
 
 | 경로 | 내용 |
 |---|---|
-| `backend/` | FastAPI + SQLAlchemy + Alembic. 엔드포인트 5개(`/health`, 목록/단건/latest/POST) + OG 미리보기용 3개(`/api/og/{date}`, `/api/og/latest`, `/api/og/{date}/image.jpg`) |
+| `backend/` | FastAPI + SQLAlchemy + Alembic. 엔드포인트 5개(`/health`, 목록/단건/latest/POST) + OG 미리보기용 3개(`/api/og/{date}`, `/api/og/latest`, `/api/og/{date}/image.jpg`) + 이미지 프록시 1개(`/api/img/{date}/{num}`) |
 | `backend/scripts/` | 수집·Q&A 생성·발행 스크립트(앱 코드 아님) |
-| `frontend/` | React + Vite + Tailwind. `deck.css`는 원본 정적 카드뉴스에서 그대로 이식 |
+| `frontend/` | React + Vite + Tailwind. 세로 스냅 피드(`ShortsFeed`), 스타일은 `feed.css`·`chrome.css` |
 | `deploy/` | 호스트 nginx vhost, DB 백업 스크립트 |
 
 콘텐츠는 이 저장소가 만들지 않는다 — 다른 Claude 세션이 `/btc-daily` 스킬로 만들어

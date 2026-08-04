@@ -88,10 +88,12 @@ python scripts/push_edition.py ../drafts/edition-<date>.json \
 ## 4. 이미지 규칙
 
 `media.image`는 **stem(번들 asset 파일명)과 절대 URL 둘 다 허용**된다
-(`frontend/src/CardDeck.tsx`의 `CardArt`가 둘 다 해석). 시드 fixture 9장은
+(`frontend/src/imageUrl.ts`의 `cardImageSrc`가 둘 다 해석). 시드 fixture 9장은
 전부 stem(`fed-macro` 등, `frontend/src/assets/media/`에 실물 파일 존재).
 자동 발행 파이프라인(`scripts/collect_daily.py` → 이 계약)은 **원본 썸네일
-URL을 그대로 쓴다** — 다운로드/재호스팅 없음:
+URL을 그대로 쓴다** — 발행 시점에는 다운로드/재호스팅을 하지 않는다.
+대신 프론트가 절대 URL을 `/api/img/{date}/{num}` 프록시로 돌려 WebP로 줄여
+받는다(원본 평균 380KB → 약 35KB). 계약에는 원본 URL을 그대로 넣으면 된다:
 - 뉴스: 후보의 `image_url` 그대로.
 - 유튜브: `https://i.ytimg.com/vi/{video_id}/hqdefault.jpg`.
 

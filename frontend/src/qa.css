@@ -1,6 +1,6 @@
-/* New selectors only — reuses deck.css's runtime theme vars (--ink, --ink-dim,
-   --accent, --accent2, --paper2, --line, --chip-bg, --glow). Do not add rules
-   for deck.css's own selectors here. */
+/* 생각 확장하기 블록. 바텀시트(DetailSheet) 안에서만 쓰인다.
+   feed.css의 런타임 테마 변수(--ink, --ink-dim, --accent, --accent2, --paper2,
+   --line, --chip-bg, --glow)를 그대로 쓴다 — feed.css 소유 셀렉터는 여기 두지 않는다. */
 
 .qa-block { display: flex; flex-direction: column; gap: 8px; }
 .qa-label {
