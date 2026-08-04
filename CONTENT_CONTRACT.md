@@ -44,7 +44,7 @@
 | `trending` | — | object \| null | | **선택 블록.** 없으면 슬라이드 12장(표지+카드10+클로징), 있으면 클로징 앞에 트렌딩 슬라이드가 끼어 13장. 기존 발행분 9편에는 없다 |
 | | `eyebrow` | str | trending 있으면 ✓ | |
 | | `title` | str | trending 있으면 ✓ | |
-| | `note` | str \| null | | 40자 이내 한 줄 (예: `"뉴스 20건 · 유튜브 5건 집계"`) |
+| | `note` | str \| null | | 40자 이내 한 줄. draft의 `trending_corpus.note`를 그대로 복사한다 (예: `"뉴스 205건 12매체 · 유튜브 18건 17채널 집계"`) |
 | | `items` | list[TrendingItem] | trending 있으면 ✓ | **정확히 10개, `rank`는 1~10 오름차순** — 아니면 422 |
 | | `items[].rank` | int | ✓ | 1~10 |
 | | `items[].topic` | str | ✓ | 사람이 읽을 라벨 (후보 태그를 그대로 쓰지 않고 다듬는다) |
@@ -58,6 +58,10 @@
 `collect_daily.py`가 상위 15개를 draft의 `trending_candidates`에 남기면
 `.claude/skills/btc-daily/SKILL.md` 5.1단계에서 사람(Claude)이 겹치는 토픽을
 10개로 병합·라벨링해 이 블록을 만든다.
+
+`note`에 들어갈 집계 규모는 같은 스크립트가 `trending_corpus`로 함께 남긴다.
+문구는 Claude가 쓰지만 **이 숫자만은 세는 것이지 쓰는 게 아니라서**, draft에
+없으면 무인 발행이 "N건 집계"를 지어내게 된다.
 
 ## 2. 톤 가이드
 

@@ -123,6 +123,32 @@ def trending_pool_videos(
     ]
 
 
+def corpus_summary(
+    news: list[dict[str, Any]], videos: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """트렌딩 집계가 실제로 무엇을 봤는지 — 건수와 매체/채널 수.
+
+    `note` 문자열까지 여기서 완성해 draft 에 굽는다. 발행 문구를 쓰는 주체는
+    Claude 지만 **이 숫자만은 세는 것이지 쓰는 게 아니다.** draft 에 없으면 무인
+    실행이 트렌딩 카드의 "N건 집계"를 지어내는 수밖에 없다(2026-08-05: 사람이
+    수동으로 세어 넣었다). 세어서 넘겨주면 그대로 베끼면 된다.
+    """
+    outlets = {n.get("source_ref") for n in news if n.get("source_ref")}
+    channels = {v.get("channel_title") for v in videos if v.get("channel_title")}
+    return {
+        "news": len(news),
+        "outlets": len(outlets),
+        "videos": len(videos),
+        "channels": len(channels),
+        "outlet_names": sorted(outlets),
+        "channel_names": sorted(channels),
+        "note": (
+            f"뉴스 {len(news)}건 {len(outlets)}매체 · "
+            f"유튜브 {len(videos)}건 {len(channels)}채널 집계"
+        ),
+    }
+
+
 def warn_video_drought(items: list[dict[str, Any]]) -> None:
     """영상 후보가 0건일 때 원인을 stderr 로 구분해 알린다.
 
@@ -258,6 +284,7 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None) -> P
     trending_news = trending_pool_news(trending_news_raw, window_end_utc)
     trending_videos = trending_pool_videos(yt_raw, window_end_utc)
     trending_candidates = rank_topics(trending_news, trending_videos, window_end_utc)
+    trending_corpus = corpus_summary(trending_news, trending_videos)
 
     out_path = (
         Path(args.out) if args.out else REPO_ROOT / "drafts" / f"draft-{date.isoformat()}.json"
@@ -269,6 +296,7 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None) -> P
                 "skeleton": skeleton,
                 "candidates": {"news": news, "videos": videos},
                 "trending_candidates": trending_candidates,
+                "trending_corpus": trending_corpus,
             },
             ensure_ascii=False,
             indent=2,
@@ -282,6 +310,7 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None) -> P
         f"trending pool: news {len(trending_news)} / videos {len(trending_videos)}"
         f" -> {len(trending_candidates)} topics"
     )
+    print(f"trending corpus: {trending_corpus['note']}")
     print(f"wrote {out_path}")
     return out_path
 

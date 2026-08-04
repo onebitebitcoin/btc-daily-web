@@ -281,6 +281,58 @@ def test_collect_daily_main_writes_draft(tmp_path: Path) -> None:
     )
 
 
+def test_collect_daily_main_writes_trending_corpus_note(tmp_path: Path) -> None:
+    """무인 실행이 트렌딩 카드의 "N건 집계"를 지어내지 않도록 draft 가 note 를 준다."""
+    out_path = tmp_path / "draft.json"
+
+    with httpx.Client(transport=httpx.MockTransport(_mock_handler)) as client:
+        collect_daily.main(
+            [
+                "--date",
+                "2026-07-31",
+                "--out",
+                str(out_path),
+                "--news-url",
+                "http://x/news",
+                "--youtube-url",
+                "http://x/queue",
+            ],
+            client=client,
+        )
+
+    corpus = json.loads(out_path.read_text(encoding="utf-8"))["trending_corpus"]
+    assert corpus["news"] == 1
+    assert corpus["outlets"] == 1
+    assert corpus["outlet_names"] == ["X"]
+    assert corpus["note"].startswith("뉴스 1건 1매체 · 유튜브 ")
+
+
+def test_corpus_summary_counts_distinct_outlets_not_articles() -> None:
+    """한 매체가 여러 건을 써도 매체 수는 1이다 — 토큰포스트가 코퍼스 절반을 차지한다."""
+    news = [make_news(source_ref="토큰포스트") for _ in range(5)] + [make_news(source_ref="B")]
+    videos = [make_video(id="a"), make_video(id="b")]
+    videos[0]["channel_title"] = "채널A"
+    videos[1]["channel_title"] = "채널A"
+
+    summary = collect_daily.corpus_summary(news, videos)
+
+    assert summary["news"] == 6
+    assert summary["outlets"] == 2
+    assert summary["videos"] == 2
+    assert summary["channels"] == 1
+    assert summary["note"] == "뉴스 6건 2매체 · 유튜브 2건 1채널 집계"
+
+
+def test_corpus_summary_ignores_items_missing_source_name() -> None:
+    """source_ref/channel_title 이 빠진 항목이 매체 수를 부풀리면 안 된다."""
+    news = [make_news(source_ref="A"), {"title": "출처 없음"}]
+
+    summary = collect_daily.corpus_summary(news, [])
+
+    assert summary["news"] == 2
+    assert summary["outlets"] == 1
+
+
 def test_collect_daily_main_fails_when_no_candidates(tmp_path: Path) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if "news" in str(request.url):
