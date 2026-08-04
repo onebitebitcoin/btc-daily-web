@@ -46,6 +46,27 @@ def test_stopwords_are_filtered_out() -> None:
     assert "레귤레이션" in topics
 
 
+def test_daily_commentary_tags_do_not_outrank_real_events() -> None:
+    """매일 붙는 시황 서술어는 채널 수가 아무리 많아도 토픽이 되면 안 된다.
+
+    유튜브는 대부분이 일일 시황 코멘터리라, `시황`/`가격분석` 같은 태그를 세면
+    채널 수가 그대로 매체 다양성으로 둔갑해 실제 사건을 전부 눌러버린다
+    (2026-08-05 실측: 25건 19매체로 1위 차지). 여기서는 채널 19곳이 시황을,
+    3곳만 실제 사건을 다룬 상황을 만들어 사건이 1위로 남는지 본다.
+    """
+    videos = [
+        make_video(title=f"오늘의 #시황 #가격분석 #변동성 {i}", channel_title=f"채널{i}")
+        for i in range(19)
+    ]
+    news = [make_news(["#콜드카드"], source_ref=f"매체{i}") for i in range(3)]
+
+    result = rank_topics(news, videos, NOW)
+
+    topics = {r["topic"] for r in result}
+    assert topics.isdisjoint({"시황", "가격분석", "변동성"})
+    assert result[0]["topic"] == "콜드카드"
+
+
 def test_synonyms_merge_into_one_topic() -> None:
     items = [
         make_news(["#Fed"], source_ref="매체A"),
