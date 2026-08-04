@@ -16,11 +16,13 @@
 
 - [x] Phase 10: 탭 타이틀 변경 + 날짜별 OG 이미지/설명 자동 생성 (v0.5.0) — 탭 타이틀 "BTC DAILY"→"데일리 비트코인". SNS 크롤러는 JS를 실행하지 않아 SPA 정적 `index.html`로는 날짜별 메타를 줄 수 없다는 제약 때문에, 컨테이너 nginx가 User-Agent로 크롤러만 골라(`facebookexternalhit|Twitterbot|Slackbot|TelegramBot|KakaoTalk|...`) 백엔드가 렌더링한 메타 전용 HTML(`app/og.py:render_og_html`)로 `rewrite ... last`(→ 기존 `/api` 프록시 블록 재사용, 정규식 location 안에서 URI 붙인 `proxy_pass`가 금지돼 있어서 rewrite로 우회)하고, 사람은 그대로 SPA를 받는 구조로 구현. og:image는 카드 1(`cards[0].media.image`)의 원본 썸네일 URL을 `httpx`로 가져와 Pillow로 1200×630 중앙 크롭 후 `/data/og`(docker volume `og_cache`)에 캐시. og:description은 카드 1의 title+body를 160자로 축약. 구현 중 실물 배포 검증에서 버그 2건 발견·수정: (1) `if` 블록 안 `proxy_set_header`/URI 붙은 `proxy_pass`는 nginx 문법 금지라 `rewrite ^ /api/og/... last`로 우회, (2) 컨테이너 nginx의 기존 `/api` 블록이 `X-Forwarded-Proto: $scheme`(컨테이너 자신의 스킴, 항상 http)로 호스트 nginx가 보낸 실제 `https`를 덮어쓰고 있어서 og:image/og:url이 항상 `http://`로 굳는 걸 발견 — `map`으로 upstream 헤더를 우선하고 없을 때만 자기 스킴으로 폴백하도록 수정(이 버그는 기존부터 있었으나 이번에 og.py가 그 헤더를 처음 실사용하면서 드러남). 프로덕션 헤더(Host/X-Forwarded-Proto) 시뮬레이션으로 og:image/url이 `https://daily.onebitebitcoin.com/...`로 정확히 나오는 것, 일반 UA는 기존 SPA(index.html)를 그대로 받는 것, `/calendar`·정적 asset·`/api/editions/latest` 회귀 없는 것까지 실제 컨테이너에서 확인. ruff clean, pytest 60 passed(신규 test_og.py 8개 포함).
 
+- [x] 기존 발행분 이관 — 해소됨. 2026-08-05 기준 프로덕션에 07-27~08-05 **10편** 발행돼 있다(`GET /api/editions`로 확인).
+- [x] CD 워크플로 — 완료. `.github/workflows/ci.yml`의 `deploy` job이 `needs: [backend, frontend]` + `main` push 조건으로 돈다. VPS의 self-hosted 러너(`[self-hosted, btc-daily-web]`)가 컨테이너와 같은 서버에 있어서 `actions/checkout` 없이 배포용 클론(`/home/measly/btc-daily-web`, `.env`·볼륨이 있는 곳)을 직접 `git pull` 후 `docker compose build/up`. **테스트가 깨지면 배포가 막힌다** — `0af4009`가 `deploy=skipped`로 실제 차단된 기록이 있다. push → 테스트 → 배포까지 자동이라 수동으로 남는 일은 발행(데이터 push)뿐이다.
+- [x] 카드 크기 통일 — 쇼츠 전환(`ac1fb9b`, `f55b316`)에서 구조적으로 해결됐다. `.slide{height:100dvh}` + `.card{height:100%; max-width:var(--card-w)}`라 모든 슬라이드가 같은 크기다.
+- [~] 시각적 동일성 비교 (원본 정적 `reference/template.html` vs 프로덕션) — **폐기.** 세로 무한 피드로 전환(`ac1fb9b`)하면서 원본 덱 레이아웃을 의도적으로 버렸다. 비교 대상이 사라졌으므로 더 이상 할 일이 아니다.
+
 ## 현재 진행 중
 (없음)
 
 ## 남은 Phase
-- [ ] **기존 발행분 5일치 이관 (Mac 작업)** — 2026-07-27~07-31 원본이 Mac의 SQLite/`drafts/`에만 있다. 서버 `.env`의 `ADMIN_API_KEY`를 Mac `backend/.env`에 맞춘 뒤 `push_edition.py ... --api https://daily.onebitebitcoin.com`. **이관 전까지 사이트는 편집본 0건이라 에러 화면**이다(`latest` 404) — 2026-08-01 기준 07-27~08-01 6일치 발행 완료로 해소됨
-- [ ] 시각적 동일성 비교 (원본 정적 `reference/template.html` vs 프로덕션) — 데이터 이관 후에만 가능
-- [ ] CD 워크플로 — 포트(8020)·vhost·TLS가 확정됐으므로 이제 착수 가능. VPS에 self-hosted runner가 이미 3개(fee/meetup/stack-health) 있어 같은 방식 재사용 가능
-- [ ] 카드 크기 통일
+- [ ] **무인 발행이 macOS TCC에 막혀 있다** — launchd(`com.nsw.btc-daily`)가 매일 06:00에 발화하지만 띄운 zsh가 `~/Desktop` 아래를 못 읽어 즉시 죽는다(`/bin/zsh: can't open input file`, `logs/launchd.err`). 일회성 launchd 프로브로 확정: Desktop은 `Operation not permitted`, `/tmp`는 정상. **지금까지 한 번도 성공한 적이 없고**, 매일 아침 에디션은 전부 수동 발행이었다. 조치: 시스템 설정 → 개인정보 보호 및 보안 → 전체 디스크 접근에 `/bin/zsh` 추가(사용자 GUI 작업). 검증: `launchctl kickstart -k gui/501/com.nsw.btc-daily` 후 `logs/daily-cron-<날짜>.log`가 생기는지 확인(오늘자 에디션이 이미 있으면 SKIP 경로로 안전하게 끝난다).
