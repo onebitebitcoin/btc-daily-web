@@ -49,6 +49,13 @@ export interface EditionContent {
  *  본문 규격이 200자 내외라 대부분 걸린다. */
 const BODY_CLAMP_CHARS = 150;
 
+/** 가로 데크 시절에 발행된 편들은 표지 힌트가 "옆으로 넘겨서…"로 굳어 있다.
+ *  발행분은 다시 쓰지 않으므로(재발행하면 그날 뉴스가 달라진다) 읽는 쪽에서
+ *  방향만 바로잡는다. 생성기(fixtures/content.json)는 이미 "위로"로 고쳤다. */
+export function readingDirectionHint(hint: string): string {
+  return hint.replace(/^옆으로/, '위로');
+}
+
 /** 카드 한 장에 다 담기지 않는 내용이 있는가 — 시트를 열 수단을 줄지 판단한다. */
 export function hasMoreToRead(card: Card): boolean {
   return (

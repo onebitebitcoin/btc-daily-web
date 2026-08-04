@@ -1,6 +1,6 @@
 import { Fragment } from 'react';
 import { CardArt } from '../CardArt';
-import type { Card, Cover } from '../content';
+import { readingDirectionHint, type Card, type Cover } from '../content';
 
 interface CoverSlideProps {
   cover: Cover;
@@ -53,7 +53,7 @@ export function CoverSlide({
             ))}
           </p>
           <div className="cover-hint">
-            {cover.hint}{' '}
+            {readingDirectionHint(cover.hint)}{' '}
             <span className="sw">
               <span />
               <span />

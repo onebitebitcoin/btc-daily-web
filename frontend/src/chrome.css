@@ -2,9 +2,18 @@
    strip.css(가로 날짜 pill 줄)를 대체한다 — 세로 피드에서는 pill 줄이 화면을
    먹기만 하고 문법에도 안 맞아서 칩 하나 + 캘린더 시트로 접었다. */
 
+/* 카드가 화면에 꽉 차지 않고 떠 있으므로, 크롬도 카드 폭에 맞춰 세워야
+   카드와 나란히 보인다. 창 끝까지 늘어나면 카드와 무관한 띠처럼 읽힌다. */
+.progress-bar, .topline {
+  left: 50%; right: auto; transform: translateX(-50%);
+  width: min(var(--card-w), calc(100% - 28px));
+}
+
+/* 카드 시작 위치(--card-top)에서 역산하므로 화면 크기·카드 높이와 무관하게
+   항상 카드 바로 위에 붙는다. */
 .progress-bar {
-  position: absolute; top: 0; left: 0; right: 0; z-index: 6;
-  display: flex; gap: 4px; padding: calc(12px + env(safe-area-inset-top)) 16px 0;
+  position: absolute; top: calc(var(--card-top) - 44px); z-index: 6;
+  display: flex; gap: 4px; padding: 0 2px;
 }
 .progress-bar i {
   flex: 1; height: 3px; border-radius: 2px; background: var(--seg-off);
@@ -17,20 +26,18 @@
 .progress-bar i.done b { width: 100%; }
 
 .topline {
-  position: absolute; top: calc(24px + env(safe-area-inset-top)); left: 0; right: 0; z-index: 6;
+  position: absolute; top: calc(var(--card-top) - 32px); z-index: 6;
   display: flex; align-items: center; justify-content: space-between;
-  padding: 0 16px;
+  padding: 0 2px;
   pointer-events: none;
 }
 .topline > * { pointer-events: auto; }
 
-/* 스크림 위에 얹히므로 항상 밝은 글자로 고정한다. --accent-strong 은 라이트
-   테마에서 어두운 값이 들어와 스크림 위에서 대비가 무너진다. */
+/* 이제 썸네일이 아니라 피드 배경(--bg 그라디언트) 위에 앉으므로 테마 색을 쓴다. */
 .brand {
   display: inline-flex; align-items: center; gap: 6px;
   font-family: 'Card Display', sans-serif; font-weight: 700; letter-spacing: 0.04em;
-  font-size: 13px; color: #ffd79a; text-transform: uppercase;
-  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+  font-size: 13px; color: var(--accent-strong); text-transform: uppercase;
 }
 .brand-logo { width: 18px; height: 18px; border-radius: 50%; flex: 0 0 auto; }
 
@@ -50,18 +57,6 @@
 :root[data-theme='light'] .date-chip { background: rgba(255, 255, 255, 0.75); }
 @media (prefers-color-scheme: light) {
   :root:not([data-theme='dark']) .date-chip { background: rgba(255, 255, 255, 0.75); }
-}
-
-/* 데스크톱에서는 카드가 가운데 9:16 프레임이라, 크롬도 그 폭 안으로 들여야
-   창 끝까지 늘어난 진행바가 카드와 무관해 보이지 않는다. */
-@media (min-width: 561px) {
-  .progress-bar, .topline {
-    left: 50%; right: auto; transform: translateX(-50%);
-    width: var(--card-w);
-    padding-left: 14px; padding-right: 14px;
-  }
-  .progress-bar { top: calc((100dvh - var(--card-h)) / 2 + 12px); }
-  .topline { top: calc((100dvh - var(--card-h)) / 2 + 26px); }
 }
 
 .cal-sheet { align-items: center; }
