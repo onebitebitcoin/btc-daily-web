@@ -107,6 +107,61 @@ def test_filter_news_caps_at_20() -> None:
     assert len(result) == 20
 
 
+# ---- collect_daily.trending_pool_* (집계용 코퍼스 — 카드 후보 필터와 목적이 다르다) ----
+
+
+def test_trending_pool_news_keeps_duplicates() -> None:
+    """중복 기사는 카드에선 버리지만 집계에선 신호다 — 여러 매체가 같은 사건을 다뤘다는 뜻."""
+    items = [make_news(is_duplicate=True), make_news(is_duplicate=False)]
+
+    assert len(collect_daily.trending_pool_news(items, NOW)) == 2
+
+
+def test_trending_pool_news_has_no_cap() -> None:
+    """카드 후보는 20건에서 자르지만 "그날 뭐가 핫했나"는 전체를 봐야 나온다."""
+    items = [make_news(source_ref=str(i)) for i in range(120)]
+
+    assert len(collect_daily.trending_pool_news(items, NOW)) == 120
+
+
+def test_trending_pool_news_still_bounded_to_24h() -> None:
+    items = [
+        make_news(crawled_at="2026-07-29T00:00:00+00:00"),
+        make_news(crawled_at="2026-07-31T01:00:00+00:00"),
+    ]
+
+    result = collect_daily.trending_pool_news(items, NOW)
+
+    assert [n["crawled_at"] for n in result] == ["2026-07-31T01:00:00+00:00"]
+
+
+def test_trending_pool_videos_does_not_require_a_summary() -> None:
+    """요약은 카드 문구를 쓸 때 필요하다. 아직 안 붙었다고 그날 화제작이 통계에서 빠지면 안 된다."""
+    items = [make_video(id="no-summary", summary="")]
+
+    assert len(collect_daily.trending_pool_videos(items, NOW)) == 1
+
+
+def test_trending_pool_videos_excludes_other_topics() -> None:
+    items = [make_video(id="btc"), make_video(id="ai", topic="AI")]
+
+    result = collect_daily.trending_pool_videos(items, NOW)
+
+    assert [v["id"] for v in result] == ["btc"]
+
+
+def test_trending_pool_videos_uses_a_24h_window_not_the_card_48h() -> None:
+    """카드가 48h를 보는 건 요약 지연을 흡수하려는 것이지 신선도 기준이 아니다."""
+    items = [
+        make_video(id="fresh", published_at="2026-07-31T01:00:00+00:00"),
+        make_video(id="stale", published_at="2026-07-30T01:00:00+00:00"),
+    ]
+
+    result = collect_daily.trending_pool_videos(items, NOW)
+
+    assert [v["id"] for v in result] == ["fresh"]
+
+
 # ---- collect_daily.filter_videos ----
 
 

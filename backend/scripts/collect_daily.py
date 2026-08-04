@@ -36,6 +36,10 @@ if str(BACKEND_ROOT) not in sys.path:
 from app.trending import rank_topics  # noqa: E402  (sys.path 조정 후여야 함)
 
 DEFAULT_NEWS_URL = "http://localhost:8000/api/news?asset=btc&limit=100"
+# 트렌딩 집계는 카드 후보와 목적이 다르다 — 카드는 "쓸 만한 10건"을 고르지만
+# 집계는 24시간에 무슨 일이 있었는지 전부 봐야 한다. 같은 소스를 따로, 넓게 받는다
+# (2026-08-05 실측: 24h 코퍼스 205건인데 카드 후보 필터를 거치면 20건만 남았다).
+DEFAULT_TRENDING_NEWS_URL = "http://localhost:8000/api/news?asset=btc&limit=500"
 # full=1 없으면 my-youtube 가 summary/highlights/description 을 뺀 경량 응답을 준다.
 # 그러면 filter_videos 의 `summary` 조건에 전부 걸려 후보가 조용히 0건이 된다(2026-08-05).
 DEFAULT_YOUTUBE_URL = "http://localhost:23456/api/queue?full=1"
@@ -83,6 +87,40 @@ def filter_videos(items: list[dict[str, Any]], now: datetime.datetime) -> list[d
     ]
     fresh.sort(key=lambda v: v.get("view_count", 0), reverse=True)
     return fresh[:VIDEO_LIMIT]
+
+
+def trending_pool_news(
+    items: list[dict[str, Any]], now: datetime.datetime
+) -> list[dict[str, Any]]:
+    """트렌딩 집계용 24시간 뉴스 코퍼스 — 카드 후보 필터를 쓰지 않는다.
+
+    filter_news 를 재사용하면 안 되는 이유가 둘이다.
+    1. `is_duplicate` 를 버린다. 카드에는 같은 사건을 두 번 싣지 않으려는 올바른
+       필터지만, 집계에서는 **여러 매체가 같은 사건을 다뤘다는 사실 자체가 신호다.**
+    2. 상위 20건으로 자른다. "가장 핫한 토픽"은 그날 전체를 봐야 나온다.
+    """
+    cutoff = now - datetime.timedelta(hours=24)
+    return [n for n in items if n.get("crawled_at") and _parse_dt(n["crawled_at"]) >= cutoff]
+
+
+def trending_pool_videos(
+    items: list[dict[str, Any]], now: datetime.datetime
+) -> list[dict[str, Any]]:
+    """트렌딩 집계용 24시간 영상 코퍼스.
+
+    filter_videos 와 달리 `summary` 를 요구하지 않는다 — 요약은 카드 문구를 쓸 때나
+    필요하고, 집계에는 제목·태그·조회수면 충분하다. 요약이 아직 안 붙었다는 이유로
+    그날 화제작이 통계에서 빠지면 순위가 왜곡된다. 창도 카드(48h)와 달리 24h다 —
+    카드가 48h를 보는 건 요약 지연을 흡수하려는 것이지 신선도 기준이 아니다.
+    """
+    cutoff = now - datetime.timedelta(hours=24)
+    return [
+        v
+        for v in items
+        if v.get("topic") == "비트코인"
+        and v.get("published_at")
+        and _parse_dt(v["published_at"]) >= cutoff
+    ]
 
 
 def warn_video_drought(items: list[dict[str, Any]]) -> None:
@@ -167,6 +205,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--date", help="기본값: 오늘(Asia/Seoul)")
     parser.add_argument("--out", help="기본값: <repo>/drafts/draft-<date>.json")
     parser.add_argument("--news-url", default=DEFAULT_NEWS_URL)
+    parser.add_argument("--trending-news-url", default=DEFAULT_TRENDING_NEWS_URL)
     parser.add_argument("--youtube-url", default=DEFAULT_YOUTUBE_URL)
     return parser.parse_args(argv)
 
@@ -183,6 +222,13 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None) -> P
         client = httpx.Client(timeout=10.0)
     try:
         news_raw = fetch_json(client, args.news_url, "my-news")
+        # 트렌딩은 같은 소스를 더 넓게 한 번 더 받는다 — 카드 후보 한도(limit=100)에
+        # 묶이면 24시간 전체를 못 본다. 로컬 서버라 추가 호출 비용은 무시할 수준.
+        trending_news_raw = (
+            news_raw
+            if args.trending_news_url == args.news_url
+            else fetch_json(client, args.trending_news_url, "my-news(trending)")
+        )
         yt_raw = fetch_json(client, args.youtube_url, "my-youtube")["items"]
     finally:
         if owns_client:
@@ -208,8 +254,10 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None) -> P
     skeleton = build_skeleton(
         date, fixture["theme"], fixture["brand"], fixture["cover"], fixture["closing"], sources
     )
-    # 순수 계산이라 네트워크 호출 없음 — collector가 이미 필터링해둔 후보 그대로 넘긴다.
-    trending_candidates = rank_topics(news, videos, window_end_utc)
+    # 집계는 카드 후보(뉴스 20 · 영상 5)가 아니라 24시간 코퍼스 전체를 본다.
+    trending_news = trending_pool_news(trending_news_raw, window_end_utc)
+    trending_videos = trending_pool_videos(yt_raw, window_end_utc)
+    trending_candidates = rank_topics(trending_news, trending_videos, window_end_utc)
 
     out_path = (
         Path(args.out) if args.out else REPO_ROOT / "drafts" / f"draft-{date.isoformat()}.json"
@@ -230,7 +278,10 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None) -> P
 
     print(f"news candidates: {len(news)}")
     print(f"video candidates: {len(videos)}")
-    print(f"trending candidates: {len(trending_candidates)}")
+    print(
+        f"trending pool: news {len(trending_news)} / videos {len(trending_videos)}"
+        f" -> {len(trending_candidates)} topics"
+    )
     print(f"wrote {out_path}")
     return out_path
 
