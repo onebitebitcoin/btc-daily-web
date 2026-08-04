@@ -128,13 +128,9 @@ export function ShortsFeed({ startDate, startIndex }: ShortsFeedProps) {
     if (startIndex > 0) goTo(Math.min(startIndex, slides.length - 1));
   }, [slides.length, startIndex, goTo]);
 
-  // 스크롤에 맞춰 주소를 갱신한다. pushState면 뒤로가기를 12번 눌러야 빠져나간다.
-  // 라우터에는 알리지 않는다 — 알리면 :date가 바뀌며 피드가 통째로 다시 마운트된다.
-  useEffect(() => {
-    if (!currentSlide) return;
-    const path = `/d/${currentSlide.date}/${currentSlide.localIndex}`;
-    if (window.location.pathname !== path) window.history.replaceState(null, '', path);
-  }, [currentSlide]);
+  // 스크롤로 주소를 갱신하지 않는다. `/`에서 시작한 사람이 스크롤만 해도 주소가
+  // `/d/{그날}`로 바뀌면, 거기서 북마크한 링크가 그 날짜에 고정돼 다음 날 열어도
+  // 지난 편을 본다. 주소는 사용자가 의도적으로 이동할 때만(캘린더·공유 링크) 바뀐다.
 
   const selectDate = useCallback(
     (picked: string) => {

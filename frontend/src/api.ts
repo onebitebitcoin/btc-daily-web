@@ -24,10 +24,6 @@ export function fetchEditions(): Promise<EditionSummary[]> {
   return request('/api/editions');
 }
 
-export function fetchLatestEdition(): Promise<EditionContent> {
-  return request('/api/editions/latest');
-}
-
 export function fetchEdition(date: string): Promise<EditionContent> {
   return request(`/api/editions/${date}`);
 }

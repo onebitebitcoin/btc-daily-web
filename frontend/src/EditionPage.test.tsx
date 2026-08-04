@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import EditionPage, { RootRedirect } from './EditionPage';
+import EditionPage, { LatestFeed } from './EditionPage';
 import fixture from './fixtures/content.json';
 import type { EditionContent } from './content';
 
@@ -84,18 +84,70 @@ describe('EditionPage', () => {
   });
 });
 
-describe('RootRedirect', () => {
-  it('shows a no-data message when no edition has ever been published', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(mockResponse(null, 404))));
+function renderLatestFeed() {
+  return render(
+    <MemoryRouter initialEntries={['/']}>
+      <Routes>
+        <Route path="/" element={<LatestFeed />} />
+        <Route path="/d/:date" element={<EditionPage />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
 
-    render(
-      <MemoryRouter initialEntries={['/']}>
-        <Routes>
-          <Route path="/" element={<RootRedirect />} />
-        </Routes>
-      </MemoryRouter>,
-    );
+describe('LatestFeed', () => {
+  it('shows a no-data message when no edition has ever been published', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(mockResponse([]))));
+
+    renderLatestFeed();
 
     expect(await screen.findByText('아직 발행된 데이터가 없습니다.')).toBeDefined();
+  });
+
+  it('starts at the newest edition and leaves the URL on /', async () => {
+    // `/d/{최신}`으로 리다이렉트하면 거기서 북마크한 링크가 그 날짜에 고정된다.
+    const list = [
+      { date: '2026-07-29', slug: 'a', title: 'a' },
+      { date: content.meta.date, slug: 'b', title: 'b' },
+    ];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) =>
+        Promise.resolve(url === '/api/editions' ? mockResponse(list) : mockResponse(content)),
+      ),
+    );
+
+    const { container } = renderLatestFeed();
+
+    await screen.findByText(content.cover.eyebrow);
+    expect(container.querySelector('.date-chip')?.textContent).toContain('07.30');
+  });
+
+  it('learns the newest date from the list instead of downloading a whole edition', async () => {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        calls.push(url);
+        return Promise.resolve(
+          url === '/api/editions'
+            ? mockResponse([{ date: content.meta.date, slug: 'b', title: 'b' }])
+            : mockResponse(content),
+        );
+      }),
+    );
+
+    renderLatestFeed();
+
+    await screen.findByText(content.cover.eyebrow);
+    expect(calls).not.toContain('/api/editions/latest');
+  });
+
+  it('surfaces a network failure instead of hanging on the loading state', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new TypeError('offline'))));
+
+    renderLatestFeed();
+
+    expect(await screen.findByText('서버에 연결할 수 없습니다.')).toBeDefined();
   });
 });

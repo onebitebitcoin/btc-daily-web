@@ -118,18 +118,21 @@ describe('ShortsFeed', () => {
     expect(container.querySelectorAll('.art img').length).toBeLessThan(base.cards.length);
   });
 
-  it('keeps the address bar in sync without stacking history entries', async () => {
+  it('never rewrites the address bar while scrolling', async () => {
+    // 스크롤이 주소를 바꾸면 `/`에서 북마크한 링크가 그날 날짜에 고정돼버린다.
     stubApi();
     const replaceState = vi.spyOn(window.history, 'replaceState');
     const pushState = vi.spyOn(window.history, 'pushState');
-    renderFeed();
+    const { container } = renderFeed();
     await screen.findByText(base.cover.eyebrow);
 
     fireEvent.keyDown(window, { key: 'ArrowDown' });
-
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
     await waitFor(() =>
-      expect(replaceState).toHaveBeenCalledWith(null, '', '/d/2026-07-30/1'),
+      expect(container.querySelectorAll('.slide')[2].className).toContain('is-active'),
     );
+
+    expect(replaceState).not.toHaveBeenCalled();
     expect(pushState).not.toHaveBeenCalled();
   });
 
