@@ -1,4 +1,4 @@
-"""Collect BTC news/youtube candidates from the last 24h and write a draft skeleton.
+"""Collect BTC news(24h)/youtube(48h) candidates and write a draft skeleton.
 
 Deterministic only — no LLM calls. Fills every field of an edition that doesn't
 require judgement (meta/theme/brand/cover/closing) and dumps ranked candidates
@@ -31,6 +31,9 @@ DEFAULT_NEWS_URL = "http://localhost:8000/api/news?asset=btc&limit=100"
 DEFAULT_YOUTUBE_URL = "http://localhost:23456/api/queue"
 NEWS_LIMIT = 20
 VIDEO_LIMIT = 5
+# 영상 창은 게시 시각 기준 48h. 24h 로 좁히면 my-youtube 가 요약을 늦게 끝낸 영상이
+# 통째로 빠진다 — 게시 25h 뒤에 요약이 붙는 경우가 흔하다.
+VIDEO_WINDOW_HOURS = 48
 
 
 def _parse_dt(value: str) -> datetime.datetime:
@@ -50,14 +53,23 @@ def filter_news(items: list[dict[str, Any]], now: datetime.datetime) -> list[dic
 
 
 def filter_videos(items: list[dict[str, Any]], now: datetime.datetime) -> list[dict[str, Any]]:
-    """Keep 비트코인-topic, summarized, last-24h videos, sorted by view_count desc."""
-    cutoff = now - datetime.timedelta(hours=24)
+    """Keep 비트코인-topic, summarized videos published within the window, by view_count desc.
+
+    창을 published_at 으로 잡는 게 핵심이다. 큐 등록 시각(added_at)으로 잡으면
+    my-youtube 가 과거 영상을 한꺼번에 백필한 날 몇 주 지난 영상이 "최근 24시간"으로
+    딸려 들어오고, 조회수가 그만큼 누적돼 있어 상위 칸을 독차지한다.
+    (2026-08-04: 6~7월 영상 5건이 8/3 게시분을 전부 밀어냄)
+
+    published_at 이 없는 항목은 신선도를 판정할 수 없으므로 버린다.
+    """
+    cutoff = now - datetime.timedelta(hours=VIDEO_WINDOW_HOURS)
     fresh = [
         v
         for v in items
         if v.get("topic") == "비트코인"
         and v.get("summary")
-        and _parse_dt(v["added_at"]) >= cutoff
+        and v.get("published_at")
+        and _parse_dt(v["published_at"]) >= cutoff
     ]
     fresh.sort(key=lambda v: v.get("view_count", 0), reverse=True)
     return fresh[:VIDEO_LIMIT]

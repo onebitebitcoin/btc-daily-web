@@ -38,6 +38,7 @@ def make_video(**overrides: Any) -> dict[str, Any]:
         "id": "abc123",
         "topic": "비트코인",
         "summary": "요약",
+        "published_at": "2026-07-31T02:00:00+00:00",
         "added_at": "2026-07-31T02:00:00+00:00",
         "view_count": 100,
     }
@@ -115,8 +116,35 @@ def test_filter_videos_requires_bitcoin_topic_and_summary() -> None:
     assert collect_daily.filter_videos(items, NOW) == []
 
 
-def test_filter_videos_excludes_older_than_24h() -> None:
-    items = [make_video(added_at="2026-07-29T00:00:00+00:00")]
+def test_filter_videos_excludes_published_before_window() -> None:
+    items = [make_video(published_at="2026-07-28T02:00:00+00:00")]  # NOW-71h
+
+    assert collect_daily.filter_videos(items, NOW) == []
+
+
+def test_filter_videos_keeps_video_published_within_48h() -> None:
+    items = [make_video(id="late-summary", published_at="2026-07-29T12:00:00+00:00")]  # NOW-39h
+
+    assert [v["id"] for v in collect_daily.filter_videos(items, NOW)] == ["late-summary"]
+
+
+def test_filter_videos_excludes_backfilled_old_video() -> None:
+    """큐에 방금 들어왔어도 게시가 몇 주 전이면 버린다 (2026-08-04 회귀)."""
+    items = [
+        make_video(
+            id="backfilled",
+            published_at="2026-06-27T03:15:06+00:00",
+            added_at="2026-07-31T02:55:00+00:00",  # 창 안이지만 게시는 한 달 전
+            view_count=246_534,
+        ),
+        make_video(id="today", published_at="2026-07-31T01:00:00+00:00", view_count=900),
+    ]
+
+    assert [v["id"] for v in collect_daily.filter_videos(items, NOW)] == ["today"]
+
+
+def test_filter_videos_excludes_missing_published_at() -> None:
+    items = [make_video(published_at=None)]
 
     assert collect_daily.filter_videos(items, NOW) == []
 
