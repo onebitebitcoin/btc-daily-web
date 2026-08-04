@@ -89,6 +89,21 @@ function renderFeed(startDate = '2026-07-30', startIndex = 0) {
 
 const SLIDES_PER_EDITION = base.cards.length + 2;
 
+/** 한 칸 내려가고 실제로 반영될 때까지 기다린다.
+ *
+ *  keyDown을 연달아 쏘면 안 된다 — 리렌더 전에는 핸들러가 같은 `current`를 물고
+ *  있어 두 번 눌러도 한 칸만 움직인다. 로컬에서는 우연히 통과하고 CI에서 깨졌다. */
+async function advance(container: HTMLElement, to: number) {
+  fireEvent.keyDown(window, { key: 'ArrowDown' });
+  await waitFor(() =>
+    expect(container.querySelectorAll('.slide')[to]?.className).toContain('is-active'),
+  );
+}
+
+async function advanceTo(container: HTMLElement, target: number) {
+  for (let i = 1; i <= target; i += 1) await advance(container, i);
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -109,9 +124,7 @@ describe('ShortsFeed', () => {
     await screen.findByText(base.cover.eyebrow);
 
     // 끝에서 두 칸 앞까지 내려가면 다음 날짜가 붙는다.
-    for (let i = 0; i < SLIDES_PER_EDITION; i += 1) {
-      fireEvent.keyDown(window, { key: 'ArrowDown' });
-    }
+    await advanceTo(container, SLIDES_PER_EDITION - 3);
 
     await waitFor(() =>
       expect(container.querySelectorAll('.slide').length).toBeGreaterThan(SLIDES_PER_EDITION),
@@ -124,9 +137,7 @@ describe('ShortsFeed', () => {
     const { container } = renderFeed();
     await screen.findByText(base.cover.eyebrow);
 
-    for (let i = 0; i < SLIDES_PER_EDITION; i += 1) {
-      fireEvent.keyDown(window, { key: 'ArrowDown' });
-    }
+    await advanceTo(container, SLIDES_PER_EDITION - 3);
 
     await waitFor(() => expect(container.querySelector('.is-date-break')).not.toBeNull());
     expect(container.querySelector('.date-break-rule')?.textContent).toContain('2026-07-29');
@@ -149,9 +160,7 @@ describe('ShortsFeed', () => {
     await screen.findByText(base.cover.eyebrow);
     const atStart = container.querySelectorAll('.art img').length;
 
-    fireEvent.keyDown(window, { key: 'ArrowDown' });
-    fireEvent.keyDown(window, { key: 'ArrowDown' });
-    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    await advanceTo(container, 3);
 
     await waitFor(() => {
       const nowLoaded = container.querySelectorAll('.art img').length;
@@ -168,11 +177,7 @@ describe('ShortsFeed', () => {
     const { container } = renderFeed();
     await screen.findByText(base.cover.eyebrow);
 
-    fireEvent.keyDown(window, { key: 'ArrowDown' });
-    fireEvent.keyDown(window, { key: 'ArrowDown' });
-    await waitFor(() =>
-      expect(container.querySelectorAll('.slide')[2].className).toContain('is-active'),
-    );
+    await advanceTo(container, 2);
 
     expect(replaceState).not.toHaveBeenCalled();
     expect(pushState).not.toHaveBeenCalled();
