@@ -116,6 +116,11 @@ draft의 `trending_candidates`(상위 15개, `backend/app/trending.py`의 `rank_
   (같은 기사가 두 후보 태그에 동시에 걸려 있었다면 중복으로 세지 않는다).
   병합하지 않았다면 후보 값 그대로 두되, `heat`는 최종 10개 중 1위가 100이 되도록
   다시 정규화한다.
+- `links`: 후보의 `articles[]`(제목·url·매체)를 `{label, href}`로 옮긴다. 카드에서
+  "펼치기"를 누르면 이 목록이 새 탭 링크로 뜬다. `label`은 `"<매체명> 원문"`
+  형식으로 쓴다(예: `"토큰포스트 원문"`). 병합한 토픽은 양쪽 `articles`를 합치되
+  **같은 url은 한 번만** 넣고, 최대 6개까지만 남긴다. `articles`가 비어 있으면
+  `links`를 생략한다 — 빈 배열 대신 아예 빼야 그 줄이 안 눌린다.
 
 `trending` 블록으로 조립해 `skeleton`에 얹는다(`cards`/`closing`과 같은 레벨의
 최상위 키 — `CONTENT_CONTRACT.md` 1절 참고):
@@ -126,7 +131,10 @@ draft의 `trending_candidates`(상위 15개, `backend/app/trending.py`의 `rank_
   "title": "지난 24시간 가장 뜨거웠던 토픽",
   "note": "<draft의 trending_corpus.note 를 그대로>",
   "items": [
-    {"rank": 1, "topic": "규제·클래리티 법안", "heat": 100, "mentions": 6, "sources": 4}
+    {
+      "rank": 1, "topic": "규제·클래리티 법안", "heat": 100, "mentions": 6, "sources": 4,
+      "links": [{"label": "토큰포스트 원문", "href": "https://..."}]
+    }
   ]
 }
 ```

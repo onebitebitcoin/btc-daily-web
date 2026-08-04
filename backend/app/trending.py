@@ -66,6 +66,14 @@ TOP_N = 15
 _HASHTAG_RE = re.compile(r"#(\S+)")
 
 
+class ArticleRef(TypedDict):
+    """트렌딩 항목을 펼쳤을 때 보여줄 기사/영상 하나."""
+
+    title: str
+    url: str
+    source: str
+
+
 class TopicSignal(TypedDict):
     """rank_topics의 출력 원소. topic 하나에 대한 집계 결과 + 사람이 라벨을 붙일 때 쓸 근거."""
 
@@ -76,6 +84,12 @@ class TopicSignal(TypedDict):
     sources: int
     source_names: list[str]
     example_titles: list[str]
+    articles: list[ArticleRef]
+
+
+# 펼침 목록에 담을 기사 수. 시트 한 화면에 들어가고, 같은 사건을 다룬 매체가
+# 몇 곳인지 눈으로 확인되는 정도면 충분하다.
+MAX_ARTICLES = 6
 
 
 def _normalize_tag(raw: str) -> str | None:
@@ -136,7 +150,7 @@ class _Accumulator:
         self.mentions: dict[str, int] = {}
         self.latest: dict[str, datetime.datetime] = {}
         self.view_sum: dict[str, int] = {}
-        self.examples: dict[str, list[str]] = {}
+        self.examples: dict[str, list[ArticleRef]] = {}
 
     def add(
         self,
@@ -145,6 +159,7 @@ class _Accumulator:
         published: datetime.datetime | None,
         title: str | None,
         views: int = 0,
+        url: str | None = None,
     ) -> None:
         self.sources.setdefault(topic, set())
         if source_name:
@@ -158,8 +173,9 @@ class _Accumulator:
             self.view_sum[topic] = self.view_sum.get(topic, 0) + views
         if title:
             bucket = self.examples.setdefault(topic, [])
-            if len(bucket) < 3 and title not in bucket:
-                bucket.append(title)
+            # 같은 기사가 두 태그로 두 번 들어오면 목록에 중복으로 뜬다. 제목으로 막는다.
+            if len(bucket) < MAX_ARTICLES and all(a["title"] != title for a in bucket):
+                bucket.append({"title": title, "url": url or "", "source": source_name or ""})
 
 
 def rank_topics(
@@ -196,12 +212,22 @@ def rank_topics(
         topics = _item_topics(item.get("tags") or [])
         published = _parse_kst(item.get("published_at"))
         for topic in topics:
-            acc.add(topic, item.get("source_ref"), published, item.get("title"))
+            acc.add(
+                topic,
+                item.get("source_ref"),
+                published,
+                item.get("title"),
+                url=item.get("url"),
+            )
 
     for item in videos:
         raw_tags = [item.get("topic") or "", *_extract_hashtags(item.get("title") or "")]
         topics = _item_topics(raw_tags)
         published = _parse_kst(item.get("published_at"))
+        # my-youtube 응답에 url이 없는 항목이 있어 id로 복원한다.
+        video_url = item.get("url")
+        if not video_url and item.get("id"):
+            video_url = f"https://www.youtube.com/watch?v={item['id']}"
         for topic in topics:
             acc.add(
                 topic,
@@ -209,6 +235,7 @@ def rank_topics(
                 published,
                 item.get("title"),
                 views=item.get("view_count") or 0,
+                url=video_url,
             )
 
     if not acc.mentions:
@@ -228,7 +255,7 @@ def rank_topics(
                 "mentions": mentions,
                 "sources": len(acc.sources[topic]),
                 "source_names": sorted(acc.sources[topic]),
-                "example_titles": acc.examples.get(topic, []),
+                "examples": acc.examples.get(topic, []),
             }
         )
 
@@ -239,6 +266,7 @@ def rank_topics(
     result: list[TopicSignal] = []
     for entry in top:
         heat = round(100 * entry["score"] / max_score) if max_score > 0 else 0
+        examples = entry["examples"]
         result.append(
             {
                 "topic": entry["topic"],
@@ -247,7 +275,9 @@ def rank_topics(
                 "mentions": entry["mentions"],
                 "sources": entry["sources"],
                 "source_names": entry["source_names"],
-                "example_titles": entry["example_titles"],
+                "example_titles": [a["title"] for a in examples[:3]],
+                # url이 없는 항목은 뺀다 — 펼쳤을 때 눌리지 않는 줄이 남으면 고장으로 보인다.
+                "articles": [a for a in examples if a["url"]],
             }
         )
     return result

@@ -138,6 +138,45 @@ def test_trending_with_valid_items_validates() -> None:
     assert content.trending.items[0].heat == 100
 
 
+def test_trending_item_links_are_optional() -> None:
+    """트렌딩 도입 초기 발행분에는 links 가 없다 — 그 편들이 계속 살아 있어야 한다."""
+    payload = reference_payload()
+    payload["trending"] = _trending_block()
+    assert "links" not in payload["trending"]["items"][0]
+
+    content = EditionContent.model_validate(payload)
+
+    assert content.trending is not None
+    assert content.trending.items[0].links is None
+
+
+def test_trending_item_accepts_source_links() -> None:
+    payload = reference_payload()
+    trending = _trending_block()
+    trending["items"][0]["links"] = [
+        {"label": "토큰포스트 원문", "href": "https://a.example/1"},
+        {"label": "CoinDesk 원문", "href": "https://b.example/2"},
+    ]
+    payload["trending"] = trending
+
+    content = EditionContent.model_validate(payload)
+
+    links = content.trending.items[0].links  # type: ignore[union-attr]
+    assert links is not None
+    assert [link.href for link in links] == ["https://a.example/1", "https://b.example/2"]
+
+
+def test_trending_item_link_requires_both_label_and_href() -> None:
+    """href 없는 링크가 통과하면 눌리지 않는 줄이 카드에 박힌다."""
+    payload = reference_payload()
+    trending = _trending_block()
+    trending["items"][0]["links"] = [{"label": "라벨만 있음"}]
+    payload["trending"] = trending
+
+    with pytest.raises(ValidationError):
+        EditionContent.model_validate(payload)
+
+
 def test_trending_rejects_wrong_item_count() -> None:
     payload = reference_payload()
     payload["trending"] = _trending_block(n=9)

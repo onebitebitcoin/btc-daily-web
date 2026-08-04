@@ -94,6 +94,9 @@ class TrendingItem(_Strict):
     heat: int = Field(ge=0, le=100)
     mentions: int
     sources: int
+    # 펼침 목록. 없으면 그 줄은 펼칠 수 없는 상태로 렌더된다(트렌딩 도입 초기
+    # 발행분이 이 필드 없이 나갔으므로 optional 이어야 한다).
+    links: list[Link] | None = None
 
 
 class Trending(_Strict):

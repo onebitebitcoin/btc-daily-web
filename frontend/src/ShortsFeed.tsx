@@ -6,12 +6,13 @@ import { CardSlide } from './slides/CardSlide';
 import { ClosingSlide } from './slides/ClosingSlide';
 import { CoverSlide } from './slides/CoverSlide';
 import { ErrorSlide } from './slides/ErrorSlide';
+import { TrendingSheet } from './TrendingSheet';
 import { TrendingSlide } from './slides/TrendingSlide';
 import { useEditionQueue } from './useEditionQueue';
 import { useThemeVars, type Theme } from './useThemeVars';
 import { useVerticalFeed } from './useVerticalFeed';
 import { bundledMedia } from './media';
-import type { Card, EditionContent } from './content';
+import type { Card, EditionContent, TrendingItem } from './content';
 import './feed.css';
 
 /** 현재 슬라이드에서 이만큼 떨어진 카드까지만 이미지를 실제로 받는다.
@@ -114,11 +115,14 @@ export function ShortsFeed({ startDate, startIndex }: ShortsFeedProps) {
   const { entries, loadMore, hasMore, cappedByLimit, listError, publishedDates } =
     useEditionQueue(startDate);
   const [sheetCard, setSheetCard] = useState<Card | null>(null);
+  const [sheetTopic, setSheetTopic] = useState<TrendingItem | null>(null);
   const navigate = useNavigate();
   const jumpedToStart = useRef(false);
 
   const slides = useMemo(() => buildSlides(entries), [entries]);
-  const { current, trackRef, goTo } = useVerticalFeed(slides.length, sheetCard !== null);
+  // 시트가 떠 있는 동안은 뒤 피드가 움직이면 안 된다 — 어느 시트든 마찬가지다.
+  const sheetOpen = sheetCard !== null || sheetTopic !== null;
+  const { current, trackRef, goTo } = useVerticalFeed(slides.length, sheetOpen);
 
   const currentSlide = slides[current];
   const theme = currentSlide?.content?.theme ?? EMPTY_THEME;
@@ -170,7 +174,7 @@ export function ShortsFeed({ startDate, startIndex }: ShortsFeedProps) {
         onSelectDate={selectDate}
       />
 
-      <div className={'feed-track' + (sheetCard ? ' is-locked' : '')} ref={trackRef}>
+      <div className={'feed-track' + (sheetOpen ? ' is-locked' : '')} ref={trackRef}>
         {slides.map((slide, index) => {
           const isActive = index === current;
           const shouldLoadImage = Math.abs(index - current) <= IMAGE_WINDOW;
@@ -201,7 +205,12 @@ export function ShortsFeed({ startDate, startIndex }: ShortsFeedProps) {
           }
           if (slide.kind === 'trending') {
             return (
-              <TrendingSlide key={slide.key} trending={slide.content!.trending!} isActive={isActive} />
+              <TrendingSlide
+                key={slide.key}
+                trending={slide.content!.trending!}
+                isActive={isActive}
+                onOpenTopic={setSheetTopic}
+              />
             );
           }
           if (slide.kind === 'closing') {
@@ -235,6 +244,7 @@ export function ShortsFeed({ startDate, startIndex }: ShortsFeedProps) {
       )}
 
       <DetailSheet card={sheetCard} onClose={() => setSheetCard(null)} />
+      <TrendingSheet item={sheetTopic} onClose={() => setSheetTopic(null)} />
     </div>
   );
 }

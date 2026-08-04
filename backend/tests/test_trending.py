@@ -14,8 +14,15 @@ def make_news(
     source_ref: str = "매체A",
     published_at: str = "2026-08-05T02:00:00",
     title: str = "기사 제목",
+    url: str | None = "https://news.example/1",
 ) -> dict[str, Any]:
-    return {"title": title, "tags": tags, "source_ref": source_ref, "published_at": published_at}
+    return {
+        "title": title,
+        "tags": tags,
+        "source_ref": source_ref,
+        "published_at": published_at,
+        "url": url,
+    }
 
 
 def make_video(
@@ -65,6 +72,54 @@ def test_daily_commentary_tags_do_not_outrank_real_events() -> None:
     topics = {r["topic"] for r in result}
     assert topics.isdisjoint({"시황", "가격분석", "변동성"})
     assert result[0]["topic"] == "콜드카드"
+
+
+def test_articles_carry_the_source_links_behind_a_topic() -> None:
+    """펼침 목록의 재료 — 토픽마다 실제로 어떤 기사에서 나왔는지."""
+    items = [
+        make_news(["#콜드카드"], source_ref="토큰포스트", title="A", url="https://a.example/1"),
+        make_news(["#콜드카드"], source_ref="CoinDesk", title="B", url="https://b.example/2"),
+    ]
+
+    result = rank_topics(items, [], NOW)
+
+    articles = result[0]["articles"]
+    assert [a["title"] for a in articles] == ["A", "B"]
+    assert [a["url"] for a in articles] == ["https://a.example/1", "https://b.example/2"]
+    assert [a["source"] for a in articles] == ["토큰포스트", "CoinDesk"]
+
+
+def test_articles_drop_entries_without_a_url() -> None:
+    """누르면 아무 데도 안 가는 줄이 목록에 남으면 고장으로 보인다."""
+    items = [
+        make_news(["#콜드카드"], title="링크 있음", url="https://a.example/1"),
+        make_news(["#콜드카드"], source_ref="매체B", title="링크 없음", url=None),
+    ]
+
+    result = rank_topics(items, [], NOW)
+
+    assert [a["title"] for a in result[0]["articles"]] == ["링크 있음"]
+    # 집계 자체는 링크 유무와 무관하다 — 언급 수는 둘 다 센다.
+    assert result[0]["mentions"] == 2
+
+
+def test_articles_do_not_repeat_one_item_matched_by_two_tags() -> None:
+    items = [make_news(["#콜드카드", "#보안"], title="같은 기사", url="https://a.example/1")]
+
+    result = rank_topics(items, [], NOW)
+
+    for entry in result:
+        assert [a["title"] for a in entry["articles"]] == ["같은 기사"]
+
+
+def test_video_articles_fall_back_to_a_watch_url_from_the_id() -> None:
+    """my-youtube 응답에 url 이 빠진 항목이 있어 id 로 복원한다."""
+    video = make_video(title="#콜드카드 분석")
+    video["id"] = "abc123"
+
+    result = rank_topics([], [video], NOW)
+
+    assert result[0]["articles"][0]["url"] == "https://www.youtube.com/watch?v=abc123"
 
 
 def test_synonyms_merge_into_one_topic() -> None:
