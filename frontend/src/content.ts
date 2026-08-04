@@ -36,6 +36,23 @@ export interface Closing {
   disclaimer: string;
 }
 
+export interface TrendingItem {
+  rank: number;
+  topic: string;
+  heat: number;
+  mentions: number;
+  sources: number;
+}
+
+/** 24시간 트렌딩 토픽 TOP 10 카드. 기존 발행분 9편에는 없는 선택 블록이라
+ *  EditionContent에서 optional로 둬야 과거 에디션이 계속 슬라이드 12장으로 렌더된다. */
+export interface Trending {
+  eyebrow: string;
+  title: string;
+  note: string | null;
+  items: TrendingItem[];
+}
+
 export interface EditionContent {
   meta: { title: string; slug: string; date: string };
   theme: Theme;
@@ -43,6 +60,7 @@ export interface EditionContent {
   cover: Cover;
   cards: Card[];
   closing: Closing;
+  trending?: Trending | null;
 }
 
 /** 이 길이를 넘으면 카드에서 본문이 잘린다(feed.css의 -webkit-line-clamp: 7).

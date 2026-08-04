@@ -90,3 +90,124 @@ def test_card_qa_accepts_missing_and_full_list() -> None:
     assert content.cards[1].qa is not None
     assert len(content.cards[1].qa) == 3
     assert content.cards[1].qa[0].question == "Q1"
+
+
+# ---- trending (선택 블록 — 기존 발행분 9편에는 없다) ----
+
+
+def _trending_items(n: int = 10) -> list[dict[str, Any]]:
+    return [
+        {
+            "rank": i,
+            "topic": f"토픽{i}",
+            "heat": 100 - (i - 1) * 5,
+            "mentions": 11 - i,
+            "sources": 3,
+        }
+        for i in range(1, n + 1)
+    ]
+
+
+def _trending_block(n: int = 10) -> dict[str, Any]:
+    return {
+        "eyebrow": "24H TRENDING",
+        "title": "지난 24시간 가장 뜨거웠던 토픽",
+        "note": "뉴스 20건 · 유튜브 5건 집계",
+        "items": _trending_items(n),
+    }
+
+
+def test_trending_absent_still_validates() -> None:
+    payload = reference_payload()
+    assert "trending" not in payload
+
+    content = EditionContent.model_validate(payload)
+
+    assert content.trending is None
+
+
+def test_trending_with_valid_items_validates() -> None:
+    payload = reference_payload()
+    payload["trending"] = _trending_block()
+
+    content = EditionContent.model_validate(payload)
+
+    assert content.trending is not None
+    assert len(content.trending.items) == 10
+    assert content.trending.items[0].rank == 1
+    assert content.trending.items[0].heat == 100
+
+
+def test_trending_rejects_wrong_item_count() -> None:
+    payload = reference_payload()
+    payload["trending"] = _trending_block(n=9)
+
+    with pytest.raises(ValidationError):
+        EditionContent.model_validate(payload)
+
+
+def test_trending_rejects_non_ascending_rank() -> None:
+    payload = reference_payload()
+    trending = _trending_block()
+    trending["items"][0]["rank"], trending["items"][1]["rank"] = (
+        trending["items"][1]["rank"],
+        trending["items"][0]["rank"],
+    )
+    payload["trending"] = trending
+
+    with pytest.raises(ValidationError):
+        EditionContent.model_validate(payload)
+
+
+def test_trending_rejects_heat_that_contradicts_the_rank() -> None:
+    """heat은 막대 길이로 그려진다 — 3위 막대가 1위보다 길면 눈에 보이는 모순이다."""
+    payload = reference_payload()
+    trending = _trending_block()
+    trending["items"][2]["heat"] = 100
+    trending["items"][0]["heat"] = 40
+    payload["trending"] = trending
+
+    with pytest.raises(ValidationError):
+        EditionContent.model_validate(payload)
+
+
+def test_trending_allows_tied_heat() -> None:
+    """꼬리 토픽들은 근거가 같아 점수가 동률로 나오는 게 정상이다."""
+    payload = reference_payload()
+    trending = _trending_block()
+    for item in trending["items"][5:]:
+        item["heat"] = 5
+    payload["trending"] = trending
+
+    assert EditionContent.model_validate(payload).trending is not None
+
+
+def test_trending_rejects_item_note_that_the_card_never_renders() -> None:
+    """items[].note는 계약에서 뺐다 — 카드가 렌더하지 않는 필드를 조용히 받지 않는다."""
+    payload = reference_payload()
+    trending = _trending_block()
+    trending["items"][0]["note"] = "어딘가에 쓰이겠지"
+    payload["trending"] = trending
+
+    with pytest.raises(ValidationError):
+        EditionContent.model_validate(payload)
+
+
+def test_trending_rejects_heat_out_of_range() -> None:
+    payload = reference_payload()
+    trending = _trending_block()
+    trending["items"][0]["heat"] = 101
+    payload["trending"] = trending
+
+    with pytest.raises(ValidationError):
+        EditionContent.model_validate(payload)
+
+
+def test_trending_rejects_unknown_field() -> None:
+    payload = reference_payload()
+    trending = _trending_block()
+    trending["typo_field"] = "x"
+    payload["trending"] = trending
+
+    with pytest.raises(ValidationError):
+        EditionContent.model_validate(payload)

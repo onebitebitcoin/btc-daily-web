@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { ShortsFeed } from './ShortsFeed';
 import fixture from './fixtures/content.json';
-import type { EditionContent } from './content';
+import type { EditionContent, Trending } from './content';
 
 const base = fixture as EditionContent;
 const DATES = ['2026-07-28', '2026-07-29', '2026-07-30'];
@@ -32,6 +32,48 @@ function stubApi() {
         ok: true,
         status: 200,
         json: () => Promise.resolve(editionFor(date)),
+      } as Response);
+    }),
+  );
+}
+
+// fixtures/content.json에는 trending을 넣지 않는다(백엔드 테스트가 이 파일을 "trending
+// 없이도 동작" 기준 페이로드로 쓴다) — 그래서 여기서 직접 만든다.
+function trendingBlock(): Trending {
+  return {
+    eyebrow: '24H TRENDING',
+    title: '지난 24시간 가장 뜨거웠던 토픽',
+    note: '뉴스 20건 · 유튜브 5건 집계',
+    items: Array.from({ length: 10 }, (_, i) => ({
+      rank: i + 1,
+      topic: `토픽${i + 1}`,
+      heat: 100 - i * 8,
+      mentions: 10 - i,
+      sources: 5 - Math.floor(i / 3),
+    })),
+  };
+}
+
+function editionWithTrendingFor(date: string): EditionContent {
+  return { ...editionFor(date), trending: trendingBlock() };
+}
+
+function stubApiWithTrending() {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((path: string) => {
+      if (path === '/api/editions') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve(DATES.map((d) => ({ date: d, slug: d, title: d }))),
+        } as Response);
+      }
+      const date = path.replace('/api/editions/', '');
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(editionWithTrendingFor(date)),
       } as Response);
     }),
   );
@@ -186,5 +228,36 @@ describe('ShortsFeed', () => {
     fireEvent.click(container.querySelector('[aria-label="날짜 선택"]') as Element);
 
     expect(container.querySelector('.cal-sheet')).not.toBeNull();
+  });
+
+  it('renders 12 slides (no trending slide) when the edition lacks a trending block', async () => {
+    stubApi();
+    const { container } = renderFeed();
+    await screen.findByText(base.cover.eyebrow);
+
+    expect(container.querySelectorAll('.slide')).toHaveLength(SLIDES_PER_EDITION);
+    expect(container.querySelector('.trending-list')).toBeNull();
+  });
+
+  it('inserts a trending slide (13 total) right before closing when the edition has one', async () => {
+    stubApiWithTrending();
+    const { container } = renderFeed();
+    await screen.findByText(base.cover.eyebrow);
+
+    expect(container.querySelectorAll('.slide')).toHaveLength(SLIDES_PER_EDITION + 1);
+
+    const slides = Array.from(container.querySelectorAll('.slide'));
+    const trendingIndex = slides.findIndex((s) => s.querySelector('.trending-list'));
+    const closingIndex = slides.findIndex((s) => s.querySelector('.is-closing'));
+    expect(trendingIndex).toBeGreaterThan(-1);
+    expect(closingIndex).toBe(trendingIndex + 1);
+  });
+
+  it('renders all 10 trending rows on the trending slide', async () => {
+    stubApiWithTrending();
+    const { container } = renderFeed();
+    await screen.findByText(base.cover.eyebrow);
+
+    expect(container.querySelectorAll('.trending-row')).toHaveLength(10);
   });
 });

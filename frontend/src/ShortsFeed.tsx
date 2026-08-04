@@ -6,6 +6,7 @@ import { CardSlide } from './slides/CardSlide';
 import { ClosingSlide } from './slides/ClosingSlide';
 import { CoverSlide } from './slides/CoverSlide';
 import { ErrorSlide } from './slides/ErrorSlide';
+import { TrendingSlide } from './slides/TrendingSlide';
 import { useEditionQueue } from './useEditionQueue';
 import { useThemeVars, type Theme } from './useThemeVars';
 import { useVerticalFeed } from './useVerticalFeed';
@@ -21,7 +22,7 @@ const APPEND_AHEAD = 2;
 
 const EMPTY_THEME: Theme = {};
 
-type SlideKind = 'cover' | 'card' | 'closing' | 'error';
+type SlideKind = 'cover' | 'card' | 'trending' | 'closing' | 'error';
 
 interface FeedSlide {
   key: string;
@@ -57,7 +58,9 @@ function buildSlides(
     }
 
     const cards = entry.content.cards;
-    const localTotal = cards.length + 2;
+    // 트렌딩 블록이 있으면 클로징 앞에 한 장 더 낀다 — 없는 과거 9편은 그대로 12장.
+    const trending = entry.content.trending;
+    const localTotal = cards.length + 2 + (trending ? 1 : 0);
     const shared = {
       date: entry.date,
       editionIndex,
@@ -66,7 +69,7 @@ function buildSlides(
       error: null,
     };
 
-    return [
+    const slides: FeedSlide[] = [
       { ...shared, key: `${entry.date}-cover`, localIndex: 0, kind: 'cover', card: null },
       ...cards.map((card, i) => ({
         ...shared,
@@ -75,14 +78,24 @@ function buildSlides(
         kind: 'card' as const,
         card,
       })),
-      {
-        ...shared,
-        key: `${entry.date}-closing`,
-        localIndex: localTotal - 1,
-        kind: 'closing',
-        card: null,
-      },
     ];
+    if (trending) {
+      slides.push({
+        ...shared,
+        key: `${entry.date}-trending`,
+        localIndex: cards.length + 1,
+        kind: 'trending',
+        card: null,
+      });
+    }
+    slides.push({
+      ...shared,
+      key: `${entry.date}-closing`,
+      localIndex: localTotal - 1,
+      kind: 'closing',
+      card: null,
+    });
+    return slides;
   });
 }
 
@@ -186,6 +199,11 @@ export function ShortsFeed({ startDate, startIndex }: ShortsFeedProps) {
               />
             );
           }
+          if (slide.kind === 'trending') {
+            return (
+              <TrendingSlide key={slide.key} trending={slide.content!.trending!} isActive={isActive} />
+            );
+          }
           if (slide.kind === 'closing') {
             return (
               <ClosingSlide
@@ -202,7 +220,7 @@ export function ShortsFeed({ startDate, startIndex }: ShortsFeedProps) {
               key={slide.key}
               card={slide.card!}
               date={slide.date}
-              total={slide.localTotal - 2}
+              total={slide.content!.cards.length}
               media={bundledMedia}
               isActive={isActive}
               shouldLoadImage={shouldLoadImage}

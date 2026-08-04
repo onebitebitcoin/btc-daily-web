@@ -36,10 +36,28 @@
 | | `media.href`, `media.cta` | str \| null | | 없으면 `media: null` |
 | `closing` | `eyebrow` | str | ✓ | |
 | | `mark_lines` | list[str] | ✓ | 마지막 줄만 강조색 |
-| | `rows` | list[[str, str]] | ✓ | **각 원소는 정확히 2개짜리 쌍이어야 함** — `["k"]`나 `["k","v","w"]`는 422 |
+| | `links` | list[Link] | ✓ | 각 원소 `label`/`href` 모두 필수 |
 | | `stamp` | str | ✓ | |
 | | `restart` | str | ✓ | |
 | | `sources` | list[str] | ✓ | 실제 수집된 `source_ref` 유니크 목록 |
+| | `disclaimer` | str | ✓ | 면책 문구 |
+| `trending` | — | object \| null | | **선택 블록.** 없으면 슬라이드 12장(표지+카드10+클로징), 있으면 클로징 앞에 트렌딩 슬라이드가 끼어 13장. 기존 발행분 9편에는 없다 |
+| | `eyebrow` | str | trending 있으면 ✓ | |
+| | `title` | str | trending 있으면 ✓ | |
+| | `note` | str \| null | | 40자 이내 한 줄 (예: `"뉴스 20건 · 유튜브 5건 집계"`) |
+| | `items` | list[TrendingItem] | trending 있으면 ✓ | **정확히 10개, `rank`는 1~10 오름차순** — 아니면 422 |
+| | `items[].rank` | int | ✓ | 1~10 |
+| | `items[].topic` | str | ✓ | 사람이 읽을 라벨 (후보 태그를 그대로 쓰지 않고 다듬는다) |
+| | `items[].heat` | int (0~100) | ✓ | 1위가 100이 되도록 정규화. 카드에서 막대 길이로 렌더 |
+| | `items[].mentions` | int | ✓ | 그 토픽을 다룬 후보 기사/영상 수 |
+| | `items[].sources` | int | ✓ | 서로 다른 매체 수 |
+
+`trending`은 **단순 언급 빈도가 아니라 "무엇이 진짜 핫했는가"**를 보여주는 게
+목적이다. `backend/app/trending.py`의 `rank_topics`가 매체 다양성에 지수를 줘
+계산하고(같은 매체가 5번 쓴 것보다 매체 5곳이 한 번씩 다룬 게 더 핫하다),
+`collect_daily.py`가 상위 15개를 draft의 `trending_candidates`에 남기면
+`.claude/skills/btc-daily/SKILL.md` 5.1단계에서 사람(Claude)이 겹치는 토픽을
+10개로 병합·라벨링해 이 블록을 만든다.
 
 ## 2. 톤 가이드
 

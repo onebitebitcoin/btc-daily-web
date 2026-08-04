@@ -296,6 +296,58 @@ body {
 .src-list { text-align: left; font-size: 10.5px; color: var(--ink-dim); line-height: 1.8; width: 100%; }
 .disclaimer { margin-top: 10px; font-size: 10px; color: var(--ink-dim); opacity: 0.7; line-height: 1.5; }
 
+/* ---------- 트렌딩 ---------- */
+/* 헤더 + 10행이 스크롤 없이 카드 안에 들어가야 한다. .card-body 기본값(flex: 0 0 auto)은
+   내용 높이만큼만 차지해서, 내용이 카드보다 길면 남는 부분이 overflow:hidden에 그냥
+   잘려버린다(스크롤이 아니라 안 보이게 됨). 여기서는 .card-body를 카드 전체 높이로
+   늘리고(flex: 1) 목록도 늘려서(flex: 1), 그 안의 10행이 flex: 1로 남는 높이를 똑같이
+   나눠 갖게 한다 — 카드 높이가 기기마다 달라도(뷰포트 91vh) 항상 딱 맞는다. */
+.card.is-trending .card-body {
+  flex: 1 1 auto;
+  padding: 18px 18px 16px;
+  gap: 10px;
+}
+.trending-head { flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px; }
+.trending-title {
+  margin: 0; font-size: 18px; font-weight: 700; line-height: 1.3; color: var(--ink);
+}
+.trending-note { margin: 0; font-size: 11px; color: var(--ink-dim); }
+
+.trending-list {
+  flex: 1 1 auto; min-height: 0;
+  display: flex; flex-direction: column; gap: 2px;
+  list-style: none; margin: 0; padding: 0;
+}
+.trending-row {
+  flex: 1 1 0; min-height: 0;
+  display: flex; align-items: center; gap: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.trending-row:last-child { border-bottom: none; }
+.trending-rank {
+  flex: 0 0 auto; width: 20px;
+  font-family: 'Card Display', sans-serif; font-weight: 800; font-size: 15px;
+  color: var(--ink-dim); text-align: center; font-variant-numeric: tabular-nums;
+}
+.trending-row.is-top .trending-rank { color: var(--accent-strong); }
+.trending-main {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; flex-direction: column; justify-content: center; gap: 4px;
+}
+.trending-topic-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.trending-topic {
+  font-size: 13.5px; font-weight: 700; color: var(--ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.trending-row.is-top .trending-topic { color: var(--accent2); }
+.trending-figures {
+  flex: 0 0 auto;
+  font-family: 'Card Text', monospace; font-size: 10px; color: var(--ink-dim); white-space: nowrap;
+}
+.trending-bar-track { height: 5px; border-radius: 3px; background: var(--chip-bg); overflow: hidden; }
+.trending-bar-fill { height: 100%; border-radius: 3px; background: var(--accent); box-shadow: 0 0 8px var(--glow); }
+.trending-row.is-top .trending-bar-fill { background: var(--accent-strong); }
+
 /* ---------- 바텀시트 ---------- */
 .sheet-backdrop {
   position: fixed; inset: 0; z-index: 20;

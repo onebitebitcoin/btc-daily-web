@@ -26,7 +26,14 @@ import httpx
 
 KST = ZoneInfo("Asia/Seoul")
 REPO_ROOT = Path(__file__).resolve().parents[2]
+BACKEND_ROOT = REPO_ROOT / "backend"
 FIXTURE_CONTENT = REPO_ROOT / "frontend" / "src" / "fixtures" / "content.json"
+
+# 직접 실행하면 sys.path[0]이 scripts/라 app을 못 찾는다 (push_edition.py와 동일 이유).
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+from app.trending import rank_topics  # noqa: E402  (sys.path 조정 후여야 함)
 
 DEFAULT_NEWS_URL = "http://localhost:8000/api/news?asset=btc&limit=100"
 # full=1 없으면 my-youtube 가 summary/highlights/description 을 뺀 경량 응답을 준다.
@@ -201,6 +208,8 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None) -> P
     skeleton = build_skeleton(
         date, fixture["theme"], fixture["brand"], fixture["cover"], fixture["closing"], sources
     )
+    # 순수 계산이라 네트워크 호출 없음 — collector가 이미 필터링해둔 후보 그대로 넘긴다.
+    trending_candidates = rank_topics(news, videos, window_end_utc)
 
     out_path = (
         Path(args.out) if args.out else REPO_ROOT / "drafts" / f"draft-{date.isoformat()}.json"
@@ -208,7 +217,11 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None) -> P
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(
         json.dumps(
-            {"skeleton": skeleton, "candidates": {"news": news, "videos": videos}},
+            {
+                "skeleton": skeleton,
+                "candidates": {"news": news, "videos": videos},
+                "trending_candidates": trending_candidates,
+            },
             ensure_ascii=False,
             indent=2,
         ),
@@ -217,6 +230,7 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None) -> P
 
     print(f"news candidates: {len(news)}")
     print(f"video candidates: {len(videos)}")
+    print(f"trending candidates: {len(trending_candidates)}")
     print(f"wrote {out_path}")
     return out_path
 

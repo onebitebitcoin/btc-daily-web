@@ -1,7 +1,7 @@
 import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class _Strict(BaseModel):
@@ -88,6 +88,43 @@ class Closing(_Strict):
     disclaimer: str
 
 
+class TrendingItem(_Strict):
+    rank: int
+    topic: str
+    heat: int = Field(ge=0, le=100)
+    mentions: int
+    sources: int
+
+
+class Trending(_Strict):
+    """단순 언급 빈도가 아니라 "무엇이 진짜 핫했는가"를 보여주는 순위 카드.
+
+    기존 발행분 9편에는 이 블록이 없다 — EditionContent에서 optional로 둬야
+    과거 에디션이 계속 슬라이드 12장으로 렌더된다.
+    """
+
+    eyebrow: str
+    title: str
+    note: str | None = None
+    items: list[TrendingItem]
+
+    @model_validator(mode="after")
+    def _check_items(self) -> "Trending":
+        if len(self.items) != 10:
+            raise ValueError(f"trending.items는 정확히 10개여야 한다 (받음: {len(self.items)})")
+        ranks = [item.rank for item in self.items]
+        if ranks != list(range(1, 11)):
+            raise ValueError(f"trending.items의 rank는 1~10 오름차순이어야 한다 (받음: {ranks})")
+        # heat은 막대 길이로 그려진다. 순위와 어긋나면 3위 막대가 1위보다 긴 카드가
+        # 그대로 발행되므로, 눈에 보이는 모순을 스키마에서 막는다.
+        heats = [item.heat for item in self.items]
+        if heats != sorted(heats, reverse=True):
+            raise ValueError(
+                f"trending.items의 heat은 순위를 따라 내림차순이어야 한다 (받음: {heats})"
+            )
+        return self
+
+
 class EditionContent(_Strict):
     meta: Meta
     theme: Theme
@@ -95,3 +132,4 @@ class EditionContent(_Strict):
     cover: Cover
     cards: list[Card]
     closing: Closing
+    trending: Trending | None = None
