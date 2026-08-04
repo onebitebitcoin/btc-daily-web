@@ -46,6 +46,9 @@ cd backend && source .venv/bin/activate && python scripts/collect_daily.py
 - `skeleton` — `meta`/`theme`/`brand`/`cover`/`closing`이 이미 채워져 있다. **건드리지 마라.**
 - `candidates.news[]` — 최근 24h 비트코인 기사 (중복 제외, 화제성 순)
 - `candidates.videos[]` — 최근 24h 비트코인 유튜브 (조회수 순)
+- `trending_candidates[]` — 트렌딩 토픽 후보 상위 15개 (5.1에서 쓴다)
+- `trending_corpus` — 집계가 실제로 본 코퍼스 규모. `note` 문자열이 완성된 채로
+  들어 있다. **5.1의 `note`는 이 값을 그대로 복사한다 — 직접 세거나 어림하지 마라.**
 
 ### 3. 카드 10장 선별
 
@@ -91,7 +94,9 @@ collector가 채워둔 값은 *후보 전체*의 매체 목록이라, 실제로 
 
 `drafts/edition-<date>.json`으로 저장한다.
 
-### 5.1. 트렌딩 토픽 정리 (24시간 트렌딩 카드)
+### 5.1. 트렌딩 토픽 정리 (24시간 트렌딩 카드) — **필수 단계**
+
+이 카드는 12번째 슬라이드로 매일 나간다. 건너뛰지 마라.
 
 draft의 `trending_candidates`(상위 15개, `backend/app/trending.py`의 `rank_topics`가
 매체 다양성·최신성·유튜브 반응까지 반영해 계산한 점수순 후보)를 읽고 **의미가
@@ -119,17 +124,24 @@ draft의 `trending_candidates`(상위 15개, `backend/app/trending.py`의 `rank_
 "trending": {
   "eyebrow": "24H TRENDING",
   "title": "지난 24시간 가장 뜨거웠던 토픽",
-  "note": "뉴스 20건 · 유튜브 5건 집계",
+  "note": "<draft의 trending_corpus.note 를 그대로>",
   "items": [
     {"rank": 1, "topic": "규제·클래리티 법안", "heat": 100, "mentions": 6, "sources": 4}
   ]
 }
 ```
 
+`note`는 draft의 `trending_corpus.note`를 **문자 그대로 복사한다**(예:
+`"뉴스 205건 12매체 · 유튜브 19건 18채널 집계"`). 집계 규모를 눈대중으로 쓰면
+카드에 틀린 숫자가 박힌다 — 스크립트가 세어서 넘겨주는 값이 있으니 그걸 쓴다.
+
 프론트엔드가 이 블록이 있으면 클로징 바로 앞에 트렌딩 슬라이드를 자동으로 끼운다
-(카드 12장 → 13장). 후보가 부실해서(뉴스/영상이 적었던 날) 의미 있는 10개를 못
-채우겠으면 `trending` 자체를 생략해도 된다 — optional 필드라 없으면 예전처럼
-슬라이드 12장으로 나간다.
+(슬라이드 12장 → 13장, 트렌딩이 12번째).
+
+**생략은 후보가 10개를 못 채울 때만이다.** `trending_candidates`가 10개 미만이면
+(소스가 죽었거나 물량이 극단적으로 적었던 날) `trending`을 빼고 발행한다 —
+optional 필드라 없으면 예전처럼 슬라이드 12장으로 나간다. 그 경우 **왜 뺐는지
+사용자에게 반드시 보고한다.** 후보가 10개 이상인데 생략하는 것은 실패로 친다.
 
 ### 5.5. Q&A 생성
 
