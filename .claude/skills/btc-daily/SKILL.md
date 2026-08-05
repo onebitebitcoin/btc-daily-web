@@ -8,7 +8,7 @@ description: 최근 24시간 my-news + my-youtube 데이터로 오늘자 비트�
 명령 하나로 수집 → 카드 10장 작성 → 발행까지 끝낸다.
 **문구를 쓰는 주체는 너(Claude)다.** 스크립트는 결정론적인 수집/조립/검증/발행만 한다.
 
-프로젝트 루트: `/Users/nsw/Desktop/meeting_room/lab/btc-daily-web`
+프로젝트 루트: `/Users/nsw/meeting_room/lab/btc-daily-web`
 
 ## 고정 포트 (이 머신 기준, 바꾸지 말 것)
 

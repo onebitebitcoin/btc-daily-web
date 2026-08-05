@@ -5,7 +5,7 @@
 # 발화하거나 수동으로 한 번 돌린 뒤에 또 발화해도 같은 날짜를 덮어쓰지 않게 한다.
 set -u
 
-ROOT=/Users/nsw/Desktop/meeting_room/lab/btc-daily-web
+ROOT=/Users/nsw/meeting_room/lab/btc-daily-web
 API=https://daily.onebitebitcoin.com
 LOG="$ROOT/logs/daily-cron-$(date +%F).log"
 mkdir -p "$ROOT/logs"
