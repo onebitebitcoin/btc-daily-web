@@ -1,4 +1,5 @@
 import { CardArt } from '../CardArt';
+import { showsSubtitleInBody } from '../artText';
 import { hasMoreToRead, type Card } from '../content';
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
@@ -44,7 +45,7 @@ export function CardSlide({
 
           <div className="titles">
             <div className="primary">{card.title}</div>
-            {card.subtitle && <div className="secondary">{card.subtitle}</div>}
+            {showsSubtitleInBody(card) && <div className="secondary">{card.subtitle}</div>}
           </div>
 
           {card.chips && card.chips.length > 0 && (

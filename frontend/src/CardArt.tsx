@@ -1,3 +1,4 @@
+import { CardArtFallback } from './CardArtFallback';
 import { cardImageSrc } from './imageUrl';
 import type { Card } from './content';
 
@@ -15,7 +16,7 @@ interface CardArtProps {
 }
 
 export function CardArt({ card, date, media, shouldLoad }: CardArtProps) {
-  if (!card.media) return null;
+  if (!card.media) return <CardArtFallback card={card} />;
 
   const src = cardImageSrc(date, card.num, card.media.image, media);
   if (!src || !shouldLoad) {
