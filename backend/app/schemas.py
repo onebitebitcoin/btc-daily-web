@@ -35,11 +35,29 @@ class Theme(_Strict):
     seg_off: str
 
 
+class CoverQuote(_Strict):
+    """표지 하단에 매일 한 줄씩 나가는 오스트리아학파 인용구.
+
+    `id`는 렌더에 쓰이지 않지만 반드시 실린다 — 다음 날 `app/quotes.py`의 중복
+    회피가 발행된 에디션에서 이 값을 되읽어 "이미 쓴 인용구"를 판단한다.
+    """
+
+    id: str
+    text: str
+    author: str
+    #  번들 asset stem(`frontend/src/assets/portraits/`). 퍼블릭 도메인 초상을 못
+    #  구한 인물은 None 이고, 프론트가 이름을 조판한 아바타를 대신 그린다.
+    portrait: str | None = None
+
+
 class Cover(_Strict):
     eyebrow: str
     mark: list[str]
     meta: list[str]
     hint: str
+    #  2026-08-08 발행분부터 채워진다. 그 이전 12편에는 없으므로 optional 이어야
+    #  과거 에디션이 계속 검증을 통과한다.
+    quote: CoverQuote | None = None
 
 
 class Chip(_Strict):

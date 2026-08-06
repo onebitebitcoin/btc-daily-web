@@ -136,3 +136,24 @@ def test_trending_topic_is_checked_but_source_titles_are_not() -> None:
 
     assert len(problems) == 1
     assert "트렌딩 1위 topic" in problems[0]
+
+
+def test_cover_quote_is_not_subject_to_the_polite_ending_rule() -> None:
+    """인용문은 번역된 남의 말이라 어미를 고칠 대상이 아니다.
+
+    미제스를 "…없습니다"로 바꿀 수는 없다. 나중에 누가 "커버도 검사해야지" 하고
+    find_problems 에 cover 를 추가하면 이 테스트가 막는다.
+    """
+    payload = json.loads(REFERENCE_CONTENT.read_text(encoding="utf-8"))
+    payload["meta"]["date"] = AFTER
+    for card in payload["cards"]:
+        card.update({"body": "그렇습니다.", "quote": None, "qa": None})
+    payload["cover"]["quote"] = {
+        "id": "mises-boom-collapse",
+        "text": "신용 확장이 만들어낸 호황은 끝내 붕괴를 피할 방법이 없다.",
+        "author": "루트비히 폰 미제스",
+        "portrait": None,
+    }
+    payload.pop("trending", None)
+
+    assert find_problems(EditionContent.model_validate(payload)) == []

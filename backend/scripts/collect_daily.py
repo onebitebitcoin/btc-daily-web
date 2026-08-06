@@ -33,7 +33,9 @@ FIXTURE_CONTENT = REPO_ROOT / "frontend" / "src" / "fixtures" / "content.json"
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
+from app.quotes import as_cover_quote, is_exhausted, load_pool, pick_quote  # noqa: E402
 from app.trending import rank_topics  # noqa: E402  (sys.path 조정 후여야 함)
+from scripts.recent_editions import fetch_dates, fetch_edition  # noqa: E402
 
 DEFAULT_NEWS_URL = "http://localhost:8000/api/news?asset=btc&limit=100"
 # 트렌딩 집계는 카드 후보와 목적이 다르다 — 카드는 "쓸 만한 10건"을 고르지만
@@ -43,6 +45,9 @@ DEFAULT_TRENDING_NEWS_URL = "http://localhost:8000/api/news?asset=btc&limit=500"
 # full=1 없으면 my-youtube 가 summary/highlights/description 을 뺀 경량 응답을 준다.
 # 그러면 filter_videos 의 `summary` 조건에 전부 걸려 후보가 조용히 0건이 된다(2026-08-05).
 DEFAULT_YOUTUBE_URL = "http://localhost:23456/api/queue?full=1"
+# 표지 인용구 중복 회피는 "실제로 발행된 것"을 봐야 한다 — 로컬 DB는 리허설 발행까지
+# 섞여 있어 기준이 안 된다. 그래서 다른 소스와 달리 기본값이 프로덕션이다.
+DEFAULT_EDITION_API = "https://daily.onebitebitcoin.com"
 NEWS_LIMIT = 20
 VIDEO_LIMIT = 5
 # 영상 창은 게시 시각 기준 48h. 24h 로 좁히면 my-youtube 가 요약을 늦게 끝낸 영상이
@@ -185,8 +190,11 @@ def build_skeleton(
     cover_fixed: dict[str, Any],
     closing_fixed: dict[str, Any],
     sources: list[str],
+    cover_quote: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     cover = apply_date_to_cover(cover_fixed, date)
+    if cover_quote is not None:
+        cover = {**cover, "quote": cover_quote}
     closing = dict(closing_fixed)
     closing["sources"] = sources
     return {
@@ -226,6 +234,42 @@ def fetch_json(client: httpx.Client, url: str, label: str) -> Any:
     return response.json()
 
 
+def recent_quote_ids(
+    client: httpx.Client, api: str, date: datetime.date, limit: int
+) -> list[str]:
+    """이미 쓴 표지 인용구 id를 최신 발행분부터 모은다.
+
+    **실패해도 수집을 막지 않는다.** 인용구는 표지 장식이지 그날 뉴스가 아니다 —
+    발행 이력 조회가 안 된다고 06:00 배치가 통째로 죽으면 손해가 훨씬 크다. 빈
+    목록을 돌려주면 `pick_quote`가 날짜 기반 로테이션으로 폴백한다(그날은 중복
+    회피가 약해질 뿐 발행은 나간다).
+    """
+    try:
+        # fetch_dates 는 응답이 에러면 SystemExit 을 낸다 — 여기서는 치명적이지 않다.
+        # TypeError/KeyError 는 응답 모양이 예상과 다를 때다(프록시가 끼어들거나 API가
+        # 바뀐 경우). 어느 쪽이든 인용구 하나 때문에 수집을 죽일 이유가 없다.
+        dates = fetch_dates(client, api, date, limit)
+    except (httpx.HTTPError, SystemExit, TypeError, KeyError) as exc:
+        print(f"경고: 발행 이력을 못 읽어 인용구 중복 회피를 건너뛴다 ({exc!r})", file=sys.stderr)
+        return []
+
+    ids: list[str] = []
+    for published in dates:
+        try:
+            edition = fetch_edition(client, api, published)
+        except httpx.HTTPError:
+            continue
+        # 발행분마다 모양을 확인한다 — 인용구 도입 전 12편에는 cover.quote 가 없고,
+        # 응답이 통째로 다른 모양일 수도 있다.
+        if not isinstance(edition, dict):
+            continue
+        cover = edition.get("cover")
+        quote = cover.get("quote") if isinstance(cover, dict) else None
+        if isinstance(quote, dict) and isinstance(quote.get("id"), str):
+            ids.append(quote["id"])
+    return ids
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--date", help="기본값: 오늘(Asia/Seoul)")
@@ -233,6 +277,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--news-url", default=DEFAULT_NEWS_URL)
     parser.add_argument("--trending-news-url", default=DEFAULT_TRENDING_NEWS_URL)
     parser.add_argument("--youtube-url", default=DEFAULT_YOUTUBE_URL)
+    parser.add_argument(
+        "--edition-api",
+        default=DEFAULT_EDITION_API,
+        help="표지 인용구 중복 회피용 발행 이력 조회처. 기본값: 프로덕션",
+    )
     return parser.parse_args(argv)
 
 
@@ -256,6 +305,8 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None) -> P
             else fetch_json(client, args.trending_news_url, "my-news(trending)")
         )
         yt_raw = fetch_json(client, args.youtube_url, "my-youtube")["items"]
+        quote_pool = load_pool()
+        used_quote_ids = recent_quote_ids(client, args.edition_api, date, len(quote_pool))
     finally:
         if owns_client:
             client.close()
@@ -277,8 +328,21 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None) -> P
         )
 
     sources = list(dict.fromkeys(n["source_ref"] for n in news))
+    if is_exhausted(quote_pool, used_quote_ids):
+        print(
+            "경고: 표지 인용구 풀을 한 바퀴 다 돌았다 — 가장 오래전에 쓴 것부터 "
+            f"재사용한다 (풀 {len(quote_pool)}개). austrian_quotes.json 을 늘려라.",
+            file=sys.stderr,
+        )
+    quote = pick_quote(quote_pool, used_quote_ids, date)
     skeleton = build_skeleton(
-        date, fixture["theme"], fixture["brand"], fixture["cover"], fixture["closing"], sources
+        date,
+        fixture["theme"],
+        fixture["brand"],
+        fixture["cover"],
+        fixture["closing"],
+        sources,
+        as_cover_quote(quote),
     )
     # 집계는 카드 후보(뉴스 20 · 영상 5)가 아니라 24시간 코퍼스 전체를 본다.
     trending_news = trending_pool_news(trending_news_raw, window_end_utc)
@@ -311,6 +375,7 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None) -> P
         f" -> {len(trending_candidates)} topics"
     )
     print(f"trending corpus: {trending_corpus['note']}")
+    print(f"cover quote: {quote.id} ({quote.author}) — 최근 {len(used_quote_ids)}개 제외")
     print(f"wrote {out_path}")
     return out_path
 

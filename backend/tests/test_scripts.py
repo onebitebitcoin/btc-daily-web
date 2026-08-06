@@ -854,3 +854,129 @@ def test_recent_editions_fails_loudly_when_nothing_published_yet() -> None:
     with httpx.Client(transport=_editions_transport([], {})) as client:
         with pytest.raises(SystemExit, match="발행분이 없다"):
             recent_editions.main(["--api", "http://api", "--before", "2026-08-07"], client=client)
+
+
+def test_build_skeleton_puts_the_cover_quote_beside_the_date_fields() -> None:
+    cover_fixed = {"eyebrow": "E", "mark": ["old", "old"], "meta": ["x", "y", "old"], "hint": "h"}
+    quote = {"id": "mises-boom", "text": "…", "author": "미제스", "portrait": None}
+
+    skeleton = collect_daily.build_skeleton(
+        datetime.date(2026, 8, 8), {}, "B", cover_fixed, {"sources": []}, [], quote
+    )
+
+    assert skeleton["cover"]["quote"] == quote
+    # 날짜 파생 필드는 그대로여야 한다 — push_edition 의 cover 가드가 이걸 본다.
+    assert skeleton["cover"]["mark"] == ["8월 8일", "비트코인 카드뉴스"]
+
+
+def test_build_skeleton_omits_the_quote_key_when_there_is_none() -> None:
+    cover_fixed = {"eyebrow": "E", "mark": ["a", "b"], "meta": ["x", "y", "z"], "hint": "h"}
+
+    skeleton = collect_daily.build_skeleton(
+        datetime.date(2026, 8, 8), {}, "B", cover_fixed, {"sources": []}, []
+    )
+
+    assert "quote" not in skeleton["cover"]
+
+
+def _editions_handler(bodies: dict[str, Any]) -> httpx.MockTransport:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/editions":
+            return httpx.Response(200, json=[{"date": d} for d in sorted(bodies)])
+        date = request.url.path.rsplit("/", 1)[-1]
+        if date in bodies:
+            return httpx.Response(200, json=bodies[date])
+        return httpx.Response(404, json={})
+
+    return httpx.MockTransport(handler)
+
+
+def _with_quote(quote_id: str | None) -> dict[str, Any]:
+    quote = {"id": quote_id, "text": "…", "author": "A"} if quote_id else None
+    return {"cover": {"eyebrow": "E", "mark": [], "meta": [], "hint": "h", "quote": quote}}
+
+
+def test_recent_quote_ids_collects_newest_first_and_skips_editions_without_one() -> None:
+    bodies = {
+        "2026-08-05": _with_quote("hayek-curious-task"),
+        "2026-08-06": _with_quote(None),  # 인용구 도입 전 발행분
+        "2026-08-07": _with_quote("mises-boom-collapse"),
+    }
+
+    with httpx.Client(transport=_editions_handler(bodies)) as client:
+        ids = collect_daily.recent_quote_ids(
+            client, "http://api", datetime.date(2026, 8, 8), limit=10
+        )
+
+    assert ids == ["mises-boom-collapse", "hayek-curious-task"]
+
+
+def test_recent_quote_ids_survives_a_dead_api(capsys: pytest.CaptureFixture[str]) -> None:
+    # 인용구는 표지 장식이다 — 이력 조회 실패로 06:00 배치가 죽으면 안 된다.
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, json={})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        ids = collect_daily.recent_quote_ids(
+            client, "http://api", datetime.date(2026, 8, 8), limit=10
+        )
+
+    assert ids == []
+    assert "중복 회피를 건너뛴다" in capsys.readouterr().err
+
+
+def test_collect_daily_main_fills_the_cover_quote(tmp_path: Path) -> None:
+    out_path = tmp_path / "draft.json"
+
+    with httpx.Client(transport=httpx.MockTransport(_mock_handler)) as client:
+        collect_daily.main(
+            [
+                "--date",
+                "2026-07-31",
+                "--out",
+                str(out_path),
+                "--news-url",
+                "http://x/news",
+                "--youtube-url",
+                "http://x/queue",
+                "--edition-api",
+                "http://x",
+            ],
+            client=client,
+        )
+
+    quote = json.loads(out_path.read_text(encoding="utf-8"))["skeleton"]["cover"]["quote"]
+    assert set(quote) == {"id", "text", "author", "portrait"}
+    assert quote["id"] and quote["text"] and quote["author"]
+
+
+def test_recent_quote_ids_survives_an_unexpected_response_shape(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # 발행 목록이 리스트가 아니라 딕셔너리로 오면 예전 코드는 TypeError 로 죽었다.
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"items": []})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        ids = collect_daily.recent_quote_ids(
+            client, "http://api", datetime.date(2026, 8, 8), limit=10
+        )
+
+    assert ids == []
+    assert "중복 회피를 건너뛴다" in capsys.readouterr().err
+
+
+def test_recent_quote_ids_ignores_editions_whose_body_is_not_a_dict() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/editions":
+            return httpx.Response(200, json=[{"date": "2026-08-06"}, {"date": "2026-08-07"}])
+        if request.url.path.endswith("2026-08-07"):
+            return httpx.Response(200, json=["unexpected"])
+        return httpx.Response(200, json=_with_quote("hayek-curious-task"))
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        ids = collect_daily.recent_quote_ids(
+            client, "http://api", datetime.date(2026, 8, 8), limit=10
+        )
+
+    assert ids == ["hayek-curious-task"]

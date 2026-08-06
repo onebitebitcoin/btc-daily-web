@@ -72,6 +72,10 @@ def find_problems(content: "EditionContent") -> list[str]:
     검사 대상은 **Claude가 쓴 한국어 문구**로 한정한다. 전부가 영문인 `subtitle`,
     매체명인 `link.label`, 기사 원제를 그대로 옮기는 `trending.items[].links[].title`
     은 제외한다 — 원제를 다듬는 건 계약이 금지한 행위라 여기서 걸면 안 된다.
+
+    `cover.quote`도 제외다. 표지 인용구는 미제스·하이에크의 말을 옮긴 번역문이라
+    했습니다체로 고칠 대상이 아니다("…없습니다"라고 말한 적이 없다). 여기에 커버를
+    추가하려는 시도는 `test_wording.py`가 막는다.
     """
     if content.meta.date < EFFECTIVE_DATE:
         return []

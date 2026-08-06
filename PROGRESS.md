@@ -4,13 +4,14 @@
 
 ## 완료된 Phase
 
-- [x] Phase 1: 인용구 풀 27개 + 선택 로직 + 테스트 13건 (커밋 대기)
+- [x] Phase 1: 인용구 풀 27개 + 선택 로직 + 테스트 13건 (b9ebea0)
       하이에크 10 · 미제스 8 · 로스바드 3 · 해즐릿 3 · 멩거 2 · 뵘바베르크 1
+
+- [x] Phase 2: `CoverQuote` 스키마(optional) + `collect_daily` 배선 + 테스트 (총 182건 통과)
 
 ## 현재 진행 중
 
-- [ ] Phase 2: 스키마(`CoverQuote`) + `collect_daily` 배선 + 테스트
+- [ ] Phase 3: PD 초상 asset + 프론트 렌더(`CoverSlide`, `SpeakerAvatar`, CSS) + 테스트
 
 ## 남은 Phase
-- [ ] Phase 3: PD 초상 asset + 프론트 렌더(`CoverSlide`, `SpeakerAvatar`, CSS) + 테스트
 - [ ] Phase 4: 문서(CONTENT_CONTRACT/SKILL) + 8/7 재발행 + 검증

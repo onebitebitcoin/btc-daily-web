@@ -276,3 +276,59 @@ def test_trending_rejects_unknown_field() -> None:
 
     with pytest.raises(ValidationError):
         EditionContent.model_validate(payload)
+
+
+def cover_quote() -> dict[str, Any]:
+    return {
+        "id": "mises-boom-collapse",
+        "text": "신용 확장이 만들어낸 호황은 끝내 붕괴를 피할 방법이 없다.",
+        "author": "루트비히 폰 미제스",
+        "portrait": None,
+    }
+
+
+def test_cover_quote_is_optional_so_earlier_editions_still_validate() -> None:
+    # 07-27~08-07 발행분에는 cover.quote 가 없다. 필수로 만들면 재발행이 막힌다.
+    content = EditionContent.model_validate(reference_payload())
+
+    assert content.cover.quote is None
+
+
+def test_cover_quote_round_trips() -> None:
+    payload = reference_payload()
+    payload["cover"]["quote"] = cover_quote()
+
+    content = EditionContent.model_validate(payload)
+
+    assert content.cover.quote is not None
+    assert content.cover.quote.id == "mises-boom-collapse"
+    assert content.cover.quote.author == "루트비히 폰 미제스"
+    assert content.cover.quote.portrait is None
+
+
+def test_cover_quote_portrait_defaults_to_none() -> None:
+    payload = reference_payload()
+    quote = cover_quote()
+    del quote["portrait"]
+    payload["cover"]["quote"] = quote
+
+    assert EditionContent.model_validate(payload).cover.quote.portrait is None
+
+
+def test_cover_quote_rejects_unknown_keys() -> None:
+    payload = reference_payload()
+    payload["cover"]["quote"] = {**cover_quote(), "en": "There is no means..."}
+
+    # 원문·저작은 austrian_quotes.json 에만 산다 — 발행물에 실어 나르지 않는다.
+    with pytest.raises(ValidationError):
+        EditionContent.model_validate(payload)
+
+
+def test_cover_quote_requires_an_id_for_next_day_dedup() -> None:
+    payload = reference_payload()
+    quote = cover_quote()
+    del quote["id"]
+    payload["cover"]["quote"] = quote
+
+    with pytest.raises(ValidationError):
+        EditionContent.model_validate(payload)
