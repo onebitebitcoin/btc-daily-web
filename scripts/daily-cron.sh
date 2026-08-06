@@ -36,7 +36,8 @@ cd "$ROOT" || exit 1
     --model claude-opus-5 \
     --dangerously-skip-permissions \
     --output-format text
-  status=$?
+  # zsh에서 status 는 $? 의 예약 별칭이라 대입하면 스크립트가 그 자리에서 죽는다.
+  rc=$?
 
-  echo "=== $(date '+%F %T %Z') claude exit=$status ==="
+  echo "=== $(date '+%F %T %Z') claude exit=$rc ==="
 } >> "$LOG" 2>&1
