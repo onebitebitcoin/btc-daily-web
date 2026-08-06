@@ -9,6 +9,9 @@ on:
   pull_request:
     paths-ignore:
       - "**.md"
+  # push 이벤트가 유실돼 배포가 안 나가는 일이 있었다(8/6 푸시는 워크플로가
+  # 생성되지 않았다). 수동으로 같은 파이프라인을 다시 돌릴 수 있게 열어둔다.
+  workflow_dispatch:
 
 jobs:
   backend:
