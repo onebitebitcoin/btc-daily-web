@@ -237,9 +237,9 @@
     "author": "카를 멩거",
     "work": "화폐의 기원",
     "year": 1892,
-    "portrait": null,
-    "portrait_source": null,
-    "portrait_license": null
+    "portrait": "menger",
+    "portrait_source": "https://commons.wikimedia.org/wiki/File:Carl_Menger_Portrait_ONB_cropped.png",
+    "portrait_license": "Public domain"
   },
   {
     "id": "menger-value-not-inherent",
@@ -248,9 +248,9 @@
     "author": "카를 멩거",
     "work": "국민경제학 원리",
     "year": 1871,
-    "portrait": null,
-    "portrait_source": null,
-    "portrait_license": null
+    "portrait": "menger",
+    "portrait_source": "https://commons.wikimedia.org/wiki/File:Carl_Menger_Portrait_ONB_cropped.png",
+    "portrait_license": "Public domain"
   },
   {
     "id": "bohm-bawerk-power-vs-law",
@@ -259,9 +259,9 @@
     "author": "오이겐 폰 뵘바베르크",
     "work": "권력이냐 경제법칙이냐",
     "year": 1914,
-    "portrait": null,
-    "portrait_source": null,
-    "portrait_license": null
+    "portrait": "bohm-bawerk",
+    "portrait_source": "https://commons.wikimedia.org/wiki/File:Eugen_von_B%C3%B6hm-Bawerk_1896_Portrait_cropped.png",
+    "portrait_license": "Public domain"
   },
   {
     "id": "hazlitt-one-lesson",

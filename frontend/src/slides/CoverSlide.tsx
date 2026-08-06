@@ -1,6 +1,7 @@
 import { Fragment } from 'react';
 import { CardArt } from '../CardArt';
 import { readingDirectionHint, type Card, type Cover } from '../content';
+import { SpeakerAvatar } from './SpeakerAvatar';
 
 interface CoverSlideProps {
   cover: Cover;
@@ -60,6 +61,16 @@ export function CoverSlide({
               <span />
             </span>
           </div>
+
+          {/* 표지 콘텐츠는 카드 높이의 절반쯤만 쓴다. 남는 자리에 그날의 인용구를
+              넣는다 — 인용구 도입 전 발행분에는 없으므로 있을 때만 그린다. */}
+          {cover.quote && (
+            <figure className="cover-quote">
+              <SpeakerAvatar author={cover.quote.author} portrait={cover.quote.portrait} />
+              <blockquote className="cover-quote-text">{cover.quote.text}</blockquote>
+              <figcaption className="cover-quote-author">— {cover.quote.author}</figcaption>
+            </figure>
+          )}
         </div>
       </div>
     </div>

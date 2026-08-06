@@ -9,9 +9,11 @@
 
 - [x] Phase 2: `CoverQuote` 스키마(optional) + `collect_daily` 배선 + 테스트 (총 182건 통과)
 
+- [x] Phase 3: PD 초상 2장 + `SpeakerAvatar`/`CoverSlide`/CSS + 프론트 테스트 110건 통과
+      **라이선스 결과: PD는 멩거·뵘바베르크뿐** — 미제스/하이에크/로스바드는 CC BY(-SA),
+      해즐릿은 PD 사진 없음. 27개 중 3개만 사진, 24개는 조판 아바타. 사용자 확인 필요.
+
 ## 현재 진행 중
 
-- [ ] Phase 3: PD 초상 asset + 프론트 렌더(`CoverSlide`, `SpeakerAvatar`, CSS) + 테스트
-
-## 남은 Phase
 - [ ] Phase 4: 문서(CONTENT_CONTRACT/SKILL) + 8/7 재발행 + 검증
+

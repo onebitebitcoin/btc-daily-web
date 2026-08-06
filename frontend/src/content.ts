@@ -5,11 +5,24 @@
  */
 import type { Theme } from './useThemeVars';
 
+/** 표지 하단에 매일 한 줄씩 나가는 오스트리아학파 인용구.
+ *
+ *  `portrait`는 번들 asset stem(`assets/portraits/`)이다. 퍼블릭 도메인 초상을
+ *  구할 수 있는 인물만 값이 있고, 나머지는 null이라 이름을 조판한 아바타가 나간다. */
+export interface CoverQuote {
+  id: string;
+  text: string;
+  author: string;
+  portrait?: string | null;
+}
+
 export interface Cover {
   eyebrow: string;
   mark: string[];
   meta: string[];
   hint: string;
+  /** 2026-08-08 발행분부터. 그 이전 편에는 없다. */
+  quote?: CoverQuote | null;
 }
 
 export interface Card {
@@ -74,6 +87,15 @@ const BODY_CLAMP_CHARS = 150;
  *  방향만 바로잡는다. 생성기(fixtures/content.json)는 이미 "위로"로 고쳤다. */
 export function readingDirectionHint(hint: string): string {
   return hint.replace(/^옆으로/, '위로');
+}
+
+/** 초상이 없는 인물의 아바타에 조판할 짧은 이름 — "루트비히 폰 미제스" -> "미제스".
+ *
+ *  성만 남기는 규칙이 아니라 "마지막 낱말"이다. 인용구 풀의 여섯 인물(미제스·하이에크·
+ *  로스바드·멩거·뵘바베르크·해즐릿)이 모두 이 규칙으로 통성명되는 형태다. */
+export function speakerShortName(author: string): string {
+  const parts = author.trim().split(/\s+/);
+  return parts[parts.length - 1] || author.trim();
 }
 
 /** 카드 한 장에 다 담기지 않는 내용이 있는가 — 시트를 열 수단을 줄지 판단한다. */

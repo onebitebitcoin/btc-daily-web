@@ -312,6 +312,36 @@ body {
 @media (prefers-reduced-motion: reduce) { .cover-hint .sw span { animation: none; opacity: 0.7; } }
 .next-hint { margin-top: 14px; }
 
+/* 표지 하단 인용구. 배지·아트·날짜·힌트를 다 그려도 카드 절반이 비어서, 그 자리를
+   그날의 오스트리아학파 인용구로 채운다. 표지 card-body는 이미 overflow-y:auto라
+   유난히 긴 인용구가 와도 잘리지 않고 스크롤된다. */
+.cover-quote {
+  margin: 20px 0 0; padding-top: 18px; border-top: 1px solid var(--line);
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  max-width: 290px;
+}
+.speaker-avatar {
+  width: 54px; height: 54px; flex: none; border-radius: 50%;
+  object-fit: cover; object-position: top center;
+  border: 1px solid var(--line); background: var(--chip-bg);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+/* 퍼블릭 도메인 초상이 없는 인물 — 이름을 조판해 자리를 지킨다. */
+.speaker-avatar.is-type {
+  font-family: 'Card Display', sans-serif; font-weight: 800;
+  font-size: 13px; line-height: 1.1; letter-spacing: -0.02em;
+  color: var(--accent2); text-align: center;
+  padding: 0 5px; word-break: keep-all;
+}
+.cover-quote-text {
+  margin: 0; font-size: 14px; line-height: 1.62; color: var(--ink);
+  word-break: keep-all;
+}
+.cover-quote-author {
+  font-family: 'Card Text', monospace; font-size: 11px;
+  letter-spacing: 0.03em; color: var(--ink-dim);
+}
+
 .date-break-rule {
   font-family: 'Card Text', monospace; font-size: 10px; letter-spacing: 0.12em;
   color: var(--accent2); text-transform: uppercase;
