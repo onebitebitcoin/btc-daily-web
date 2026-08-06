@@ -6,7 +6,7 @@ from typing import Any
 import httpx
 import pytest
 
-from scripts import collect_daily, generate_qa, push_edition
+from scripts import collect_daily, generate_qa, push_edition, recent_editions
 
 NOW = datetime.datetime(2026, 7, 31, 3, 0, tzinfo=datetime.UTC)
 
@@ -771,3 +771,86 @@ def test_generate_qa_delay_applied_between_cards_not_before_first(
 
     # 카드 2장, 둘 다 첫 시도에 성공 — 카드 사이 대기 1번만 걸리고, 첫 카드 전에는 없다.
     assert sleeps == [7.0]
+
+
+def _editions_transport(
+    listing: list[dict[str, str]], bodies: dict[str, dict[str, Any]]
+) -> httpx.MockTransport:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/editions":
+            return httpx.Response(200, json=listing)
+        date = request.url.path.rsplit("/", 1)[-1]
+        if date in bodies:
+            return httpx.Response(200, json=bodies[date])
+        return httpx.Response(404, json={"detail": "not found"})
+
+    return httpx.MockTransport(handler)
+
+
+def _edition_body(*cards: tuple[str, str, str]) -> dict[str, Any]:
+    return {
+        "cards": [
+            {
+                "num": i,
+                "chip": {"text": chip, "emphasis": None},
+                "title": title,
+                "link": {"label": f"{outlet} 원문", "href": "https://example.com"},
+            }
+            for i, (chip, title, outlet) in enumerate(cards, 1)
+        ]
+    }
+
+
+def test_recent_editions_takes_latest_days_strictly_before_the_cutoff() -> None:
+    listing = [{"date": d} for d in ["2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06"]]
+    bodies = {d["date"]: _edition_body(("시황", d["date"], "토큰포스트")) for d in listing}
+
+    with httpx.Client(transport=_editions_transport(listing, bodies)) as client:
+        dates = recent_editions.fetch_dates(client, "http://api", datetime.date(2026, 8, 6), days=2)
+
+    # 커트오프 당일(08-06)은 아직 발행 전이라 제외하고, 그 이전 2일을 최신순으로.
+    assert dates == ["2026-08-05", "2026-08-04"]
+
+
+def test_recent_editions_output_lists_cards_and_counts_categories(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    listing = [{"date": "2026-08-05"}, {"date": "2026-08-06"}]
+    bodies = {
+        "2026-08-05": _edition_body(
+            ("보안", "콜드카드는 왜 뚫렸나", "Decrypt"),
+            ("시황", "6만4000달러는 되찾았다", "블록미디어"),
+        ),
+        "2026-08-06": _edition_body(("보안", "1500 비트코인이 남아 있었다", "TFTC")),
+    }
+
+    with httpx.Client(transport=_editions_transport(listing, bodies)) as client:
+        output = recent_editions.main(
+            ["--api", "http://api", "--before", "2026-08-07", "--days", "7"], client=client
+        )
+
+    assert "--- 2026-08-06 ---" in output
+    assert "[보안] 콜드카드는 왜 뚫렸나  (Decrypt)" in output
+    # 같은 카테고리가 이틀에 걸쳐 2장 — 이 빈도가 3.1단계 판단의 출발점이다.
+    assert "보안: 2장 / 2일" in output
+    assert "시황: 1장 / 1일" in output
+    assert output in capsys.readouterr().out
+
+
+def test_recent_editions_skips_dates_whose_body_is_missing() -> None:
+    listing = [{"date": "2026-08-05"}, {"date": "2026-08-06"}]
+    bodies = {"2026-08-06": _edition_body(("시황", "오늘의 시황", "토큰포스트"))}
+
+    with httpx.Client(transport=_editions_transport(listing, bodies)) as client:
+        output = recent_editions.main(
+            ["--api", "http://api", "--before", "2026-08-07"], client=client
+        )
+
+    assert "2026-08-05" not in output
+    assert "--- 2026-08-06 ---" in output
+
+
+def test_recent_editions_fails_loudly_when_nothing_published_yet() -> None:
+    with httpx.Client(transport=_editions_transport([], {})) as client:
+        with pytest.raises(SystemExit, match="발행분이 없다"):
+            recent_editions.main(["--api", "http://api", "--before", "2026-08-07"], client=client)
