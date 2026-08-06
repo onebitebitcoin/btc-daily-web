@@ -44,6 +44,11 @@ cd backend && source .venv/bin/activate && python scripts/collect_daily.py
 
 → `drafts/draft-<YYYY-MM-DD>.json` 생성. 구조:
 - `skeleton` — `meta`/`theme`/`brand`/`cover`/`closing`이 이미 채워져 있다. **건드리지 마라.**
+  - `cover.quote` — 그날의 오스트리아학파 인용구. 스크립트가 발행 이력을 읽어
+    **최근에 안 쓴 것으로 골라 넣는다.** 네가 인용구를 쓰거나 고르지 마라 —
+    출처가 확인된 `backend/app/data/austrian_quotes.json` 풀에서만 나온다.
+    (인용구는 오귀속이 흔해서, 지어내면 미제스가 하지 않은 말이 발행된다.)
+    stderr에 "인용구 풀을 한 바퀴 다 돌았다"가 뜨면 그 사실을 보고에 적어라.
 - `candidates.news[]` — 최근 24h 비트코인 기사 (중복 제외, 화제성 순)
 - `candidates.videos[]` — 최근 24h 비트코인 유튜브 (조회수 순)
 - `trending_candidates[]` — 트렌딩 토픽 후보 상위 15개 (5.1에서 쓴다)
