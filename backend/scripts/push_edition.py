@@ -25,6 +25,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.schemas import EditionContent  # noqa: E402  (sys.path 조정 후여야 함)
+from app.wording import find_problems  # noqa: E402
 from scripts.collect_daily import apply_date_to_cover  # noqa: E402
 
 ENV_FILE = BACKEND_ROOT / ".env"
@@ -73,6 +74,21 @@ def check_cover_matches_date(content: EditionContent) -> None:
         )
 
 
+def check_wording(content: EditionContent) -> None:
+    """CONTENT_CONTRACT.md 2.1·2.2 위반이면 POST 전에 멈춘다.
+
+    `check_cover_matches_date`와 같은 이유로 우회 옵션을 두지 않는다 — 끌 수 있는
+    가드는 바쁜 날 꺼지고, 그날 틀린 표기가 그대로 나간다.
+    """
+    problems = find_problems(content)
+    if problems:
+        joined = "\n".join(f"  - {p}" for p in problems)
+        raise SystemExit(
+            f"문구 게이트 실패 — 발행하지 않음 ({len(problems)}건). "
+            f"CONTENT_CONTRACT.md 2.1(어미)·2.2(표기 용어집) 참고:\n{joined}"
+        )
+
+
 def push(client: httpx.Client, api: str, api_key: str, body: dict[str, Any]) -> dict[str, Any]:
     response = client.post(
         f"{api}/api/editions",
@@ -96,6 +112,7 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None) -> d
     args = parse_args(argv)
     content = load_and_validate(args.edition_path)
     check_cover_matches_date(content)
+    check_wording(content)
 
     if args.date and content.meta.date.isoformat() != args.date:
         raise SystemExit(

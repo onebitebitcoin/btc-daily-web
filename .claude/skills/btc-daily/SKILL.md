@@ -100,12 +100,15 @@ python scripts/recent_editions.py --api https://daily.onebitebitcoin.com
 | `chip.text` | 카테고리 한 단어 (시황/온체인/규제/채굴/기관/보안/레버리지/유튜브 화제) |
 | `chip.emphasis` | `"primary"` \| `"secondary"` \| `null` 을 섞어 리듬을 준다 |
 | `chips[]` | 해시태그 3개. 후보의 `tags`를 참고하되 그대로 베끼지 말 것 |
-| `body` | **200자 내외** 한국어. 숫자와 고유명사를 살린다 |
-| `quote` | 한 줄 촌철살인. 없으면 `null` (전부 채우지 말 것 — 8~9개 정도) |
+| `body` | **200자 내외** 한국어, **했습니다체**. 숫자와 고유명사를 살린다 |
+| `quote` | 한 줄 촌철살인, **했습니다체**. 없으면 `null` (전부 채우지 말 것 — 8~9개 정도) |
 | `link` | `{label: "<매체명> 원문", href: 후보의 url}` |
 | `media` | `{image: 후보의 image_url 또는 유튜브 썸네일, href: null, cta: null}`. 이미지 없으면 `media: null` |
 
 작성 규칙:
+- **`body`·`quote`는 했습니다체**, `title`은 평서체 헤드라인. `CONTENT_CONTRACT.md` 2.1절.
+- **표기 용어집을 따른다** — Galaxy는 "갤럭시"(갈럭시 아님) 등. `CONTENT_CONTRACT.md` 2.2절.
+  후보 `summary`의 음차가 달라도 용어집이 우선이다.
 - 이모지 금지 (프로젝트 CLAUDE.md 규칙)
 - 사실만. 후보 데이터에 없는 숫자를 지어내지 마라
 - `body`에 인용구를 반복하지 마라
