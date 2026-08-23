@@ -265,10 +265,22 @@ body {
 /* 표지·클로징만 예외로 카드 안 스크롤을 허용한다. 클로징은 링크·도장·출처·
    면책까지 들어가 짧은 화면에서 넘칠 수 있는데, 편당 한 장뿐이라 축 충돌의
    대가보다 잘리지 않는 편이 낫다. */
+/* overscroll-behavior 를 여기에 두지 마라. `contain` 이면 스크롤이 부모(.feed-track)로
+   전파되지 않는데, 이 본문은 표지 화면의 80%(412x830 기준 662px)를 덮으면서 정작
+   내용이 넘치지 않으면 스크롤할 것도 없다. 그러면 그 위에서 시작한 스와이프가
+   아무 데도 가지 않아 **첫 화면에서 다음 카드로 넘어가지 못한다.**
+
+   2026-08-23 독자 제보로 발견: "로딩만 되고 나오질 않네요", "위 두번째 칸을 클릭 후
+   넘겨야 넘어가는듯요", "첫화면에서 찝어서 올려야하네요". 상단 크롬(카드 바깥)에서
+   시작한 스와이프만 먹혀서 나온 우회법이었다. 재현·수정 확인은 CDP 로 했다 —
+   본문에서 스와이프 시 scrollTop 0→0, contain 을 떼면 0→830.
+
+   overflow-y: auto 는 남긴다. 짧은 화면에서 인용구가 잘리는 걸 막는 원래 목적은
+   유효하고, 넘칠 때만 스크롤 컨테이너로 동작하니 전파를 막지 않으면 문제없다. */
 .card.is-cover .card-body, .card.is-closing .card-body {
   align-items: center; text-align: center; justify-content: center;
   padding: 26px 22px 28px;
-  overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none;
+  overflow-y: auto; scrollbar-width: none;
 }
 .card.is-cover .card-body::-webkit-scrollbar,
 .card.is-closing .card-body::-webkit-scrollbar { display: none; }
