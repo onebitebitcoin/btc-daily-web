@@ -4,12 +4,16 @@ from pathlib import Path
 from typing import Any
 
 from app.schemas import EditionContent
-from app.wording import EFFECTIVE_DATE, find_problems
+from app.wording import EFFECTIVE_DATE, TITLE_RULE_DATE, find_problems
 
 REFERENCE_CONTENT = Path(__file__).resolve().parents[2] / "reference" / "content.json"
 
 AFTER = EFFECTIVE_DATE.isoformat()
 BEFORE = (EFFECTIVE_DATE - datetime.timedelta(days=1)).isoformat()
+
+# 제목 명사형 규칙(2.1.1)은 발효일이 따로다 — 어미 규칙보다 11일 늦게 들어왔다.
+TITLE_AFTER = TITLE_RULE_DATE.isoformat()
+TITLE_BEFORE = (TITLE_RULE_DATE - datetime.timedelta(days=1)).isoformat()
 
 
 def build(date: str = AFTER, **card_overrides: Any) -> EditionContent:
@@ -110,6 +114,43 @@ def test_editions_before_the_contract_date_are_skipped() -> None:
     stale = build(date=BEFORE, title="594 BTC가 움직였다", body="가격이 밀렸다.", quote="끝났다.")
 
     assert find_problems(stale) == []
+
+
+# ---- 2.1.1 제목 명사형 종결 ----
+
+
+def test_noun_ending_title_passes() -> None:
+    assert find_problems(build(date=TITLE_AFTER, title="박스권 상단을 다시 두드린 비트코인")) == []
+
+
+def test_plain_style_title_is_caught() -> None:
+    problems = find_problems(build(date=TITLE_AFTER, title="비트코인이 6만4000달러를 되찾았다"))
+
+    assert len(problems) == 1
+    assert "명사로 끝낸다" in problems[0]
+
+
+def test_interrogative_title_is_caught() -> None:
+    """'~는가/~인가'는 사설형 제목에서 반복되던 형태다."""
+    for title in ("통제권은 어디로 가는가", "이것이 최선인가", "얼마나 더 오를까"):
+        problems = find_problems(build(date=TITLE_AFTER, title=title))
+        assert len(problems) == 1, title
+        assert "명사로 끝낸다" in problems[0]
+
+
+def test_nouns_ending_in_ga_are_not_mistaken_for_questions() -> None:
+    """바레 '가'로 판정하면 평가·물가·국가·전문가가 전부 걸린다 — 앞 음절까지 봐야 한다."""
+    for title in ("기관 투자자의 재평가", "밀려 올라간 물가", "비트코인을 담은 국가"):
+        assert find_problems(build(date=TITLE_AFTER, title=title)) == [], title
+
+
+def test_noun_exception_keeps_a_da_ending_noun() -> None:
+    assert find_problems(build(date=TITLE_AFTER, title="지붕 위에 앉은 판다")) == []
+
+
+def test_titles_before_the_title_rule_date_are_skipped() -> None:
+    """08-07~08-17 발행분 90여 장이 서술형이다 — 소급하면 오타 수정 재발행이 막힌다."""
+    assert find_problems(build(date=TITLE_BEFORE, title="비트코인이 6만4000달러를 되찾았다")) == []
 
 
 def test_trending_topic_is_checked_but_source_titles_are_not() -> None:

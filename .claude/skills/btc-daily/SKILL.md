@@ -100,7 +100,7 @@ python scripts/recent_editions.py --api https://daily.onebitebitcoin.com
 
 | 필드 | 규칙 |
 |---|---|
-| `title` | 한국어 펀치라인. 사실 + 함의를 한 줄에. 예: `"연준 금리 동결에도 비트코인은 밀렸다"` |
+| `title` | 한국어 펀치라인. 사실 + 함의를 한 줄에. **명사로 끝낸다** — `~다`/`~한다`/`~는가` 금지. 예: `"연준 금리 동결에도 밀린 비트코인"` |
 | `subtitle` | 짧은 영문. 예: `"Fed Holds, BTC Slides"` |
 | `chip.text` | 카테고리 한 단어 (시황/온체인/규제/채굴/기관/보안/레버리지/유튜브 화제) |
 | `chip.emphasis` | `"primary"` \| `"secondary"` \| `null` 을 섞어 리듬을 준다 |
@@ -111,7 +111,8 @@ python scripts/recent_editions.py --api https://daily.onebitebitcoin.com
 | `media` | `{image: 후보의 image_url 또는 유튜브 썸네일, href: null, cta: null}`. 이미지 없으면 `media: null` |
 
 작성 규칙:
-- **`body`·`quote`는 했습니다체**, `title`은 평서체 헤드라인. `CONTENT_CONTRACT.md` 2.1절.
+- **`body`·`quote`는 했습니다체**, `title`은 **명사형 종결** 헤드라인. `CONTENT_CONTRACT.md` 2.1·2.1.1절.
+  제목이 서술형(`~다`)이면 `push_edition.py`가 POST 전에 막는다.
 - **표기 용어집을 따른다** — Galaxy는 "갤럭시"(갈럭시 아님) 등. `CONTENT_CONTRACT.md` 2.2절.
   후보 `summary`의 음차가 달라도 용어집이 우선이다.
 - 이모지 금지 (프로젝트 CLAUDE.md 규칙)

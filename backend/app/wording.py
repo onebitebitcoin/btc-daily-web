@@ -1,4 +1,4 @@
-"""발행 직전 문구 게이트 — `CONTENT_CONTRACT.md` 2.1(어미)·2.2(표기 용어집)를 코드로 강제한다.
+"""발행 직전 문구 게이트 — `CONTENT_CONTRACT.md` 2.1(어미)·2.1.1(제목)·2.2(용어집)를 강제한다.
 
 같은 실수가 매일 재발하는 걸 막는 게 목적이다. 사람이 쓴 문구를 사람이 검토하면
 "오늘은 통과"가 반복되지만, 표에 한 줄 적어두면 다음 발행부터 자동으로 걸린다.
@@ -20,6 +20,10 @@ if TYPE_CHECKING:  # 런타임 임포트는 순환을 만든다 (schemas -> word
 
 # CONTENT_CONTRACT.md 2.1·2.2가 발효된 날. 이 날짜 이전 meta.date는 통과시킨다.
 EFFECTIVE_DATE = datetime.date(2026, 8, 7)
+
+# 제목 명사형 종결(2.1.1)은 나중에 들어왔다. EFFECTIVE_DATE 를 재사용하면 08-07~08-17
+# 발행분 90장이 전부 걸려 오타 수정 재발행이 막힌다 — 규칙마다 발효일을 따로 둔다.
+TITLE_RULE_DATE = datetime.date(2026, 8, 18)
 
 # 쓰면 안 되는 표기 -> 써야 하는 표기. CONTENT_CONTRACT.md 2.2와 같은 내용을 유지한다.
 BANNED_TERMS: dict[str, str] = {
@@ -66,6 +70,34 @@ def _check_ending(where: str, text: str | None, problems: list[str]) -> None:
         problems.append(f"{where}: 했습니다체가 아니다 (…{text.strip()[-16:]!r})")
 
 
+# 제목의 서술형·의문형 종결. "명사로 끝났는가"를 직접 판정하려면 형태소 분석이 필요하고
+# 사전에 없는 신조어·티커에서 오탐이 난다. 그래서 **아닌 것만 막는다** — 실제로 반복되는
+# 사고는 "~했다/~된다/~인가"로 끝내는 것이지, 희귀한 명사가 오해받는 쪽이 아니다.
+#
+# 의문형은 어미 한 글자로 잡을 수 없다. "가" 하나만 보면 평가·물가·국가·전문가가 전부
+# 걸리므로, 앞 음절까지 묶은 "는가/은가/인가/나요/까요"로만 판정한다.
+_TITLE_BAD_ENDINGS = ("다", "까", "죠", "군", "네", "는가", "은가", "인가", "나요", "까요")
+# "판다"(동물)처럼 다로 끝나는 명사를 살려두는 탈출구. 여기 적은 것으로 끝나면 통과한다.
+_TITLE_NOUN_EXCEPTIONS = ("소다", "판다", "노다")
+
+
+def _check_title_ending(where: str, text: str | None, problems: list[str]) -> None:
+    """제목은 명사로 끝난다 (CONTENT_CONTRACT.md 2.1.1).
+
+    실제 뉴스 헤드라인의 관례이자, 제목이 매일 같은 리듬으로 읽히는 걸 막는 장치다
+    (2026-08-18 이전 230장 중 77%가 `~다`로 끝났다).
+    """
+    if not text:
+        return
+    stripped = text.strip().rstrip(_TRAILING_PUNCT)
+    if not stripped or stripped.endswith(_TITLE_NOUN_EXCEPTIONS):
+        return
+    if stripped.endswith(_TITLE_BAD_ENDINGS):
+        problems.append(
+            f"{where}: 제목은 명사로 끝낸다 — 서술형·의문형 종결 금지 (…{stripped[-16:]!r})"
+        )
+
+
 def find_problems(content: "EditionContent") -> list[str]:
     """문구 규칙 위반 목록. 비어 있으면 통과다.
 
@@ -84,6 +116,8 @@ def find_problems(content: "EditionContent") -> list[str]:
     for card in content.cards:
         at = f"카드 {card.num}"
         _check_text(f"{at} title", card.title, problems)
+        if content.meta.date >= TITLE_RULE_DATE:
+            _check_title_ending(f"{at} title", card.title, problems)
         _check_text(f"{at} body", card.body, problems)
         _check_text(f"{at} quote", card.quote, problems)
         _check_text(f"{at} chip.text", card.chip.text, problems)
