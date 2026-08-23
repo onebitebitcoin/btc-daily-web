@@ -1,0 +1,68 @@
+/* 위/아래 이동 버튼.
+   기본은 모바일 — 카드가 화면을 꽉 채우므로 엄지가 닿는 우하단에 얹는다.
+   PC(카드 폭보다 넉넉한 화면)에서는 카드 옆 여백으로 옮겨 카드를 안 가린다. */
+
+.feed-nav {
+  position: absolute; z-index: 7;
+  display: flex; flex-direction: column; gap: 10px;
+  /* 컨테이너는 클릭을 먹지 않는다 — 버튼 사이 틈으로 스와이프가 그대로 지나가게. */
+  pointer-events: none;
+  /* 카드 아래 모서리(둥근 각)에 걸치지 않게 안쪽으로 들여 앉힌다. */
+  right: calc(20px + env(safe-area-inset-right));
+  bottom: calc(44px + env(safe-area-inset-bottom));
+}
+.feed-nav-btn { pointer-events: auto; }
+
+.feed-nav-btn {
+  width: 42px; height: 42px; border-radius: 50%;
+  display: grid; place-items: center;
+  border: 1px solid var(--line);
+  /* 카드 위에 얹히므로 카드 배경(--paper)에 반투명을 섞어 글자를 덜 가린다. */
+  background: color-mix(in srgb, var(--paper) 78%, transparent);
+  color: var(--ink);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.18);
+  cursor: pointer;
+  transition: opacity 0.18s ease, transform 0.18s ease, background 0.18s ease;
+}
+/* 터치 기기에서 탭 뒤 회색 사각형이 남지 않게. */
+.feed-nav-btn { -webkit-tap-highlight-color: transparent; }
+
+.feed-nav-btn:hover:not(:disabled) {
+  background: var(--paper);
+  transform: translateY(-1px);
+}
+.feed-nav-btn:active:not(:disabled) { transform: translateY(0) scale(0.94); }
+.feed-nav-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* 끝에 닿아도 감추지 않는다 — 사라지면 자리가 밀려 다음 클릭이 엉뚱한 데를 누른다. */
+.feed-nav-btn:disabled { opacity: 0.32; cursor: default; }
+
+/* 카드(430px) 양옆에 버튼(42px)과 여백이 들어갈 만큼 넓어지면 옆으로 세운다.
+   430 + (42 + 14) * 2 = 542 → 여유를 둬 560px 부터. */
+@media (min-width: 560px) {
+  .feed-nav {
+    right: auto; bottom: auto;
+    left: 50%; top: 50%;
+    /* 카드 왼쪽 바깥: 카드 절반(215px) + 간격 */
+    transform: translate(calc(-1 * (var(--card-w) / 2) - 56px), -50%);
+    gap: 14px;
+  }
+  .feed-nav-btn {
+    width: 44px; height: 44px;
+    /* 카드 밖 배경 위에 앉으므로 반투명일 이유가 없다. */
+    background: color-mix(in srgb, var(--paper) 92%, transparent);
+  }
+}
+
+/* 시트가 열려 있으면 뒤 피드를 조작할 수 없어야 한다(스크롤도 잠긴다). */
+.feed-nav.is-hidden { opacity: 0; pointer-events: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .feed-nav-btn { transition: none; }
+  .feed-nav-btn:hover:not(:disabled),
+  .feed-nav-btn:active:not(:disabled) { transform: none; }
+}

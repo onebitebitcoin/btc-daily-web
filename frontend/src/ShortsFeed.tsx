@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DetailSheet } from './DetailSheet';
 import { FeedChrome } from './FeedChrome';
+import { FeedNav } from './FeedNav';
 import { CardSlide } from './slides/CardSlide';
 import { ClosingSlide } from './slides/ClosingSlide';
 import { CoverSlide } from './slides/CoverSlide';
@@ -14,6 +15,7 @@ import { useVerticalFeed } from './useVerticalFeed';
 import { bundledMedia } from './media';
 import type { Card, EditionContent, TrendingItem } from './content';
 import './feed.css';
+import './feedNav.css';
 
 /** 현재 슬라이드에서 이만큼 떨어진 카드까지만 이미지를 실제로 받는다.
  *  loading="lazy"는 스냅 스크롤로 빠르게 지나가면 근처를 전부 받아버린다. */
@@ -122,7 +124,7 @@ export function ShortsFeed({ startDate, startIndex }: ShortsFeedProps) {
   const slides = useMemo(() => buildSlides(entries), [entries]);
   // 시트가 떠 있는 동안은 뒤 피드가 움직이면 안 된다 — 어느 시트든 마찬가지다.
   const sheetOpen = sheetCard !== null || sheetTopic !== null;
-  const { current, trackRef, goTo } = useVerticalFeed(slides.length, sheetOpen);
+  const { current, trackRef, goTo, prev, next } = useVerticalFeed(slides.length, sheetOpen);
 
   const currentSlide = slides[current];
   const theme = currentSlide?.content?.theme ?? EMPTY_THEME;
@@ -173,6 +175,16 @@ export function ShortsFeed({ startDate, startIndex }: ShortsFeedProps) {
         onGoToLocal={(i) => goTo(editionOffset + i)}
         onSelectDate={selectDate}
       />
+
+      {!sheetOpen && (
+        <FeedNav
+          onPrev={prev}
+          onNext={next}
+          atStart={current === 0}
+          // 더 불러올 게 남아 있으면 마지막 슬라이드라도 끝이 아니다.
+          atEnd={!hasMore && current >= slides.length - 1}
+        />
+      )}
 
       <div className={'feed-track' + (sheetOpen ? ' is-locked' : '')} ref={trackRef}>
         {slides.map((slide, index) => {
