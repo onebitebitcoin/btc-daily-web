@@ -77,16 +77,15 @@ def test_filter_news_excludes_duplicates() -> None:
     assert result[0]["is_duplicate"] is False
 
 
-def test_filter_news_excludes_older_than_24h() -> None:
-    items = [
-        make_news(crawled_at="2026-07-29T00:00:00+00:00"),
-        make_news(crawled_at="2026-07-31T01:00:00+00:00"),
-    ]
+def test_filter_news_excludes_items_older_than_the_window() -> None:
+    inside = NOW - datetime.timedelta(hours=collect_daily.NEWS_WINDOW_HOURS - 1)
+    outside = NOW - datetime.timedelta(hours=collect_daily.NEWS_WINDOW_HOURS + 1)
+    items = [make_news(crawled_at=outside.isoformat()), make_news(crawled_at=inside.isoformat())]
 
     result = collect_daily.filter_news(items, NOW)
 
     assert len(result) == 1
-    assert result[0]["crawled_at"] == "2026-07-31T01:00:00+00:00"
+    assert result[0]["crawled_at"] == inside.isoformat()
 
 
 def test_filter_news_ignores_dup_count_for_ordering() -> None:
@@ -120,93 +119,317 @@ def test_filter_news_orders_within_a_bucket_by_recency() -> None:
 
 
 def test_filter_news_round_robins_evenly_across_the_four_buckets() -> None:
-    """15/5/5/5 건으로 쏠려 있어도 라운드로빈이라 각 구간에서 최소 5건씩 나온다.
+    """한 구간에 기사가 쏠려 있어도 라운드로빈이라 네 구간이 같은 몫을 가져간다.
 
     NOW=2026-07-31T03:00 기준 구간은 6시간씩: b0=[21:00,03:00) b1=[15:00,21:00)
-    b2=[09:00,15:00) b3=[03:00,09:00)(전날). b0 에 15건, b1/b2/b3 에 각 5건을 두면
-    라운드로빈(구간당 1건씩, 0→1→2→3 순회)은 5라운드 만에 정확히 20건에 닿는다 —
-    b1/b2/b3 는 가진 5건을 전부 내주고, b0 는 15건 중 가장 최신 5건만 내준다.
-    최종 반환은 crawled_at 내림차순이고 구간끼리는 시간이 겹치지 않으므로,
-    구간 순서(b0→b1→b2→b3) 그대로 이어붙인 모양이 된다.
+    b2=[09:00,15:00) b3=[03:00,09:00)(전날). b0 에 넉넉히, b1/b2/b3 에 각
+    NEWS_LIMIT//4 건을 두면 라운드로빈(구간당 1건씩, 0→1→2→3 순회)은 딱
+    NEWS_LIMIT//4 라운드 만에 NEWS_LIMIT 에 닿는다 — 네 구간이 정확히 같은 수를
+    내주고, b0 는 가진 것 중 가장 최신 몫만 내준다. 최종 반환은 구간끼리 시간이
+    겹치지 않으므로 구간 순서(b0→b1→b2→b3) 그대로 이어붙인 모양이 된다.
     """
+    share = collect_daily.NEWS_LIMIT // collect_daily.NEWS_BUCKETS
     b0 = [
         make_news(
             source_ref=f"b0-{i}", crawled_at=(NOW - datetime.timedelta(minutes=i + 1)).isoformat()
         )
-        for i in range(15)
+        for i in range(collect_daily.NEWS_LIMIT)
     ]
-    b1_base = NOW - datetime.timedelta(hours=7)
+    bucket_hours = collect_daily.NEWS_WINDOW_HOURS / collect_daily.NEWS_BUCKETS
+    b1_base = NOW - datetime.timedelta(hours=bucket_hours * 1.5)
     b1 = [
         make_news(
             source_ref=f"b1-{i}", crawled_at=(b1_base - datetime.timedelta(minutes=i)).isoformat()
         )
-        for i in range(5)
+        for i in range(share)
     ]
-    b2_base = NOW - datetime.timedelta(hours=13)
+    b2_base = NOW - datetime.timedelta(hours=bucket_hours * 2.5)
     b2 = [
         make_news(
             source_ref=f"b2-{i}", crawled_at=(b2_base - datetime.timedelta(minutes=i)).isoformat()
         )
-        for i in range(5)
+        for i in range(share)
     ]
-    b3_base = NOW - datetime.timedelta(hours=19)
+    b3_base = NOW - datetime.timedelta(hours=bucket_hours * 3.5)
     b3 = [
         make_news(
             source_ref=f"b3-{i}", crawled_at=(b3_base - datetime.timedelta(minutes=i)).isoformat()
         )
-        for i in range(5)
+        for i in range(share)
     ]
 
     result = collect_daily.filter_news(b0 + b1 + b2 + b3, NOW)
 
     expected = (
-        [f"b0-{i}" for i in range(5)]
-        + [f"b1-{i}" for i in range(5)]
-        + [f"b2-{i}" for i in range(5)]
-        + [f"b3-{i}" for i in range(5)]
+        [f"b0-{i}" for i in range(share)]
+        + [f"b1-{i}" for i in range(share)]
+        + [f"b2-{i}" for i in range(share)]
+        + [f"b3-{i}" for i in range(share)]
     )
     assert [n["source_ref"] for n in result] == expected
 
 
-def test_filter_news_fills_20_from_remaining_buckets_when_others_are_empty() -> None:
-    """구간1·2가 비어 있어도(기사가 구간0·3에만 몰려 있어도) 20건을 채운다.
+def test_filter_news_fills_the_limit_from_remaining_buckets_when_others_are_empty() -> None:
+    """구간1·2가 비어 있어도(기사가 구간0·3에만 몰려 있어도) NEWS_LIMIT 을 채운다.
 
-    구간0에 18건, 구간3에 10건을 두면 라운드로빈이 빈 구간(1,2)을 건너뛰고
-    남은 두 구간(0,3)에서만 번갈아 뽑는다 — 20건에 닿으려면 각 10건씩 필요하고,
-    구간3은 정확히 10건을 갖고 있어 마침 그 시점에 소진된다.
+    라운드로빈이 빈 구간(1,2)을 건너뛰고 남은 두 구간에서만 번갈아 뽑는다 —
+    NEWS_LIMIT 에 닿으려면 각 절반씩 필요하고, 구간3은 정확히 그만큼 갖고 있어
+    마침 그 시점에 소진된다.
     """
+    half = collect_daily.NEWS_LIMIT // 2
+    bucket_hours = collect_daily.NEWS_WINDOW_HOURS / collect_daily.NEWS_BUCKETS
     b0 = [
         make_news(
             source_ref=f"b0-{i}", crawled_at=(NOW - datetime.timedelta(minutes=i + 1)).isoformat()
         )
-        for i in range(18)
+        for i in range(collect_daily.NEWS_LIMIT)
     ]
-    b3_base = NOW - datetime.timedelta(hours=19)
+    b3_base = NOW - datetime.timedelta(hours=bucket_hours * 3.5)
     b3 = [
         make_news(
             source_ref=f"b3-{i}", crawled_at=(b3_base - datetime.timedelta(minutes=i)).isoformat()
         )
-        for i in range(10)
+        for i in range(half)
     ]
 
     result = collect_daily.filter_news(b0 + b3, NOW)
     refs = [n["source_ref"] for n in result]
 
-    assert len(refs) == 20
-    assert sum(1 for r in refs if r.startswith("b0-")) == 10
-    assert sum(1 for r in refs if r.startswith("b3-")) == 10
+    assert len(refs) == collect_daily.NEWS_LIMIT
+    assert sum(1 for r in refs if r.startswith("b0-")) == half
+    assert sum(1 for r in refs if r.startswith("b3-")) == half
 
 
-def test_filter_news_caps_at_20() -> None:
-    """30건이 전부 같은 6시간 구간(bucket0)에 몰려 있어 나머지 3구간은 빈다.
+def test_filter_news_caps_at_the_limit() -> None:
+    """전부 같은 6시간 구간(bucket0)에 몰려 나머지 3구간이 비어도 상한을 넘지 않는다.
 
-    빈 구간이 있어도 유일하게 채워진 구간이 20건 몫을 전부 대신 내줘야 한다.
+    빈 구간이 있어도 유일하게 채워진 구간이 NEWS_LIMIT 몫을 전부 대신 내줘야 한다.
     """
-    items = [make_news(source_ref=str(i)) for i in range(30)]
+    items = [make_news(source_ref=str(i)) for i in range(collect_daily.NEWS_LIMIT + 10)]
 
     result = collect_daily.filter_news(items, NOW)
 
-    assert len(result) == 20
+    assert len(result) == collect_daily.NEWS_LIMIT
+
+
+# ---- collect_daily.classify_relevance / 관련도 우선순위 ----
+
+
+def test_classify_relevance_marks_bitcoin_only_articles_as_btc() -> None:
+    news = make_news(title="비트코인 8만달러 매도벽, 바이낸스 호가에 집중")
+
+    assert collect_daily.classify_relevance(news) == "btc"
+
+
+def test_classify_relevance_marks_altcoin_articles_as_other() -> None:
+    """제목이 알트 쪽으로 기울면 tags 에 #비트코인 이 붙어 있어도 btc 가 아니다.
+
+    실제 사고: 2026-08-24 발행분의 스택스 sBTC 카드가 이 경로로 들어왔다 —
+    토큰포스트 태그에 #비트코인 이 달려 있어 btc 기사처럼 보였다.
+    """
+    news = make_news(
+        title="스택스 예치 4억3700만달러, 보안 모델 재점검",
+        tags="['#비트코인', '#스택스', '#암호화폐']",
+    )
+
+    assert collect_daily.classify_relevance(news) == "other"
+
+
+def test_classify_relevance_marks_macro_articles_as_macro() -> None:
+    news = make_news(title="40억달러 바이백에도 미 장기금리 하루 만에 반등")
+
+    assert collect_daily.classify_relevance(news) == "macro"
+
+
+def test_classify_relevance_does_not_read_dollar_price_headlines_as_macro() -> None:
+    """ "N달러" 는 코인 시세 헤드라인의 기본형이라 매크로 신호로 쓰지 않는다."""
+    news = make_news(title="이더리움 2450달러 넘어 24시간 1.08% 상승")
+
+    assert collect_daily.classify_relevance(news) == "other"
+
+
+def test_classify_relevance_matches_ascii_terms_on_word_boundaries() -> None:
+    """'eth' 가 'method' 에, 'gold' 가 'Goldman' 에 걸리면 안 된다."""
+    news = make_news(title="A new method for Goldman clients to buy bitcoin")
+
+    assert collect_daily.classify_relevance(news) == "btc"
+
+
+def test_filter_news_attaches_relevance_to_every_candidate() -> None:
+    items = [make_news(title="비트코인 200일선 회복, 골든크로스 접근")]
+
+    result = collect_daily.filter_news(items, NOW)
+
+    assert result[0]["relevance"] == "btc"
+
+
+def test_filter_news_fills_btc_before_macro_before_other() -> None:
+    """등급이 바깥 축이다 — 더 최근이어도 other 는 btc 뒤로 밀린다.
+
+    other 를 가장 최근으로 두고 btc 를 가장 오래된 것으로 둔다. 예전처럼 최신순
+    단일 정렬이었다면 other 가 맨 앞에 왔을 배치다.
+    """
+    other = make_news(
+        source_ref="other", title="지캐시 850달러 돌파", crawled_at="2026-07-31T02:55:00+00:00"
+    )
+    macro = make_news(
+        source_ref="macro", title="연준 금리 동결 시사", crawled_at="2026-07-31T02:50:00+00:00"
+    )
+    btc = make_news(
+        source_ref="btc", title="비트코인 난이도 하락", crawled_at="2026-07-31T02:45:00+00:00"
+    )
+
+    result = collect_daily.filter_news([other, macro, btc], NOW)
+
+    assert [n["source_ref"] for n in result] == ["btc", "macro", "other"]
+
+
+def test_filter_news_truncates_lower_tiers_when_btc_fills_the_limit() -> None:
+    """btc 만으로 NEWS_LIMIT 이 차면 알트 기사는 후보에 아예 안 들어온다."""
+    btc = [
+        make_news(
+            source_ref=f"btc-{i}",
+            title="비트코인 시황",
+            crawled_at=(NOW - datetime.timedelta(minutes=i + 1)).isoformat(),
+        )
+        for i in range(collect_daily.NEWS_LIMIT)
+    ]
+    alt = [make_news(source_ref="alt", title="이더리움 로드맵 재정렬")]
+
+    result = collect_daily.filter_news(btc + alt, NOW)
+
+    assert len(result) == collect_daily.NEWS_LIMIT
+    assert all(n["relevance"] == "btc" for n in result)
+
+
+def test_filter_news_puts_priority_urls_first_within_a_bucket() -> None:
+    """같은 구간·같은 등급이면 트렌딩에 걸린 기사가 최신순보다 앞선다."""
+    items = [
+        make_news(
+            source_ref="newest",
+            title="비트코인 A",
+            url="https://example.com/newest",
+            crawled_at="2026-07-31T02:55:00+00:00",
+        ),
+        make_news(
+            source_ref="hot",
+            title="비트코인 B",
+            url="https://example.com/hot",
+            crawled_at="2026-07-31T02:00:00+00:00",
+        ),
+    ]
+
+    result = collect_daily.filter_news(items, NOW, priority_urls=["https://example.com/hot"])
+
+    assert [n["source_ref"] for n in result] == ["hot", "newest"]
+
+
+def test_filter_news_without_priority_urls_stays_on_recency() -> None:
+    items = [
+        make_news(source_ref="older", title="비트코인 A", crawled_at="2026-07-31T02:00:00+00:00"),
+        make_news(source_ref="newer", title="비트코인 B", crawled_at="2026-07-31T02:55:00+00:00"),
+    ]
+
+    result = collect_daily.filter_news(items, NOW)
+
+    assert [n["source_ref"] for n in result] == ["newer", "older"]
+
+
+def test_filter_news_does_not_add_relevance_to_input_items() -> None:
+    items = [make_news(title="비트코인 시황")]
+
+    collect_daily.filter_news(items, NOW)
+
+    assert "relevance" not in items[0]
+
+
+def test_trending_article_urls_dedupes_and_stops_at_the_priority_cutoff() -> None:
+    """상위 TRENDING_PRIORITY_TOPICS 개까지만 보고, 토픽끼리 겹친 url 은 한 번만 낸다."""
+    topics = [
+        {"topic": f"t{i}", "articles": [{"url": f"https://example.com/{i}"}]}
+        for i in range(collect_daily.TRENDING_PRIORITY_TOPICS + 2)
+    ]
+    topics[1]["articles"].append({"url": "https://example.com/0"})
+
+    urls = collect_daily.trending_article_urls(topics)
+
+    assert urls == [
+        f"https://example.com/{i}" for i in range(collect_daily.TRENDING_PRIORITY_TOPICS)
+    ]
+
+
+# ---- collect_daily.macro_topups / 매크로 예약 자리 ----
+
+
+def test_macro_topups_keeps_only_macro_tier() -> None:
+    """btc 등급은 일부러 버린다 — 이 피드의 tags:['bitcoin'] 은 못 믿는다."""
+    items = [
+        make_news(url="m", title="연준 금리 동결 시사"),
+        make_news(url="b", title="LG 한화 12-3 제압", tags="['bitcoin']"),
+        make_news(url="o", title="오픈AI 규제 입장 선회"),
+    ]
+
+    result = collect_daily.macro_topups(items, NOW)
+
+    assert [n["url"] for n in result] == ["m"]
+
+
+def test_macro_topups_skips_urls_already_in_the_base_feed() -> None:
+    items = [make_news(url="dup", title="연준 금리 동결 시사")]
+
+    assert collect_daily.macro_topups(items, NOW, {"dup"}) == []
+
+
+def test_macro_topups_respects_the_news_window() -> None:
+    stale = NOW - datetime.timedelta(hours=collect_daily.NEWS_WINDOW_HOURS + 1)
+    items = [make_news(url="old", title="연준 금리 동결 시사", crawled_at=stale.isoformat())]
+
+    assert collect_daily.macro_topups(items, NOW) == []
+
+
+def test_filter_news_reserves_slots_for_macro_when_btc_would_fill_the_limit() -> None:
+    """btc 가 상한을 다 먹어도 매크로가 후보에 보여야 한다."""
+    btc = [
+        make_news(
+            source_ref=f"btc-{i}",
+            title="비트코인 시황",
+            crawled_at=(NOW - datetime.timedelta(minutes=i + 1)).isoformat(),
+        )
+        for i in range(collect_daily.NEWS_LIMIT + 20)
+    ]
+    macro = [
+        make_news(
+            source_ref=f"macro-{i}",
+            title="연준 금리 동결 시사",
+            crawled_at=(NOW - datetime.timedelta(minutes=i + 1)).isoformat(),
+        )
+        for i in range(collect_daily.MACRO_RESERVE + 5)
+    ]
+
+    result = collect_daily.filter_news(btc + macro, NOW)
+
+    assert len(result) == collect_daily.NEWS_LIMIT
+    kept = sum(1 for n in result if n["relevance"] == "macro")
+    assert kept == collect_daily.MACRO_RESERVE
+
+
+def test_filter_news_gives_the_reserve_back_when_macro_is_short() -> None:
+    """매크로가 예약분보다 적으면 남는 자리는 btc 가 도로 가져간다."""
+    btc = [
+        make_news(
+            source_ref=f"btc-{i}",
+            title="비트코인 시황",
+            crawled_at=(NOW - datetime.timedelta(minutes=i + 1)).isoformat(),
+        )
+        for i in range(collect_daily.NEWS_LIMIT + 20)
+    ]
+    macro = [make_news(source_ref="macro-0", title="연준 금리 동결 시사")]
+
+    result = collect_daily.filter_news(btc + macro, NOW)
+
+    assert len(result) == collect_daily.NEWS_LIMIT
+    assert sum(1 for n in result if n["relevance"] == "macro") == 1
+    assert sum(1 for n in result if n["relevance"] == "btc") == collect_daily.NEWS_LIMIT - 1
 
 
 # ---- collect_daily 이미지 중복배제 (average hash) ----
@@ -442,12 +665,14 @@ def test_filter_videos_excludes_missing_published_at() -> None:
     assert collect_daily.filter_videos(items, NOW) == []
 
 
-def test_filter_videos_sorts_by_view_count_desc_capped_at_5() -> None:
-    items = [make_video(id=str(i), view_count=i) for i in range(7)]
+def test_filter_videos_sorts_by_view_count_desc_capped_at_the_limit() -> None:
+    count = collect_daily.VIDEO_LIMIT + 2
+    items = [make_video(id=str(i), view_count=i) for i in range(count)]
 
     result = collect_daily.filter_videos(items, NOW)
 
-    assert [v["id"] for v in result] == ["6", "5", "4", "3", "2"]
+    expected = [str(i) for i in range(count - 1, count - 1 - collect_daily.VIDEO_LIMIT, -1)]
+    assert [v["id"] for v in result] == expected
 
 
 def test_filter_videos_excludes_ids_in_exclude_ids() -> None:

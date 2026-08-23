@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { ShortsFeed } from './ShortsFeed';
@@ -7,6 +7,37 @@ import type { EditionContent, Trending } from './content';
 
 const base = fixture as EditionContent;
 const DATES = ['2026-07-28', '2026-07-29', '2026-07-30'];
+
+/** 브라우저를 최소한으로 흉내낸다 — 스크롤이 일어나면 그 슬라이드가 보이게 된다.
+ *
+ *  jsdom 에는 IntersectionObserver 도 스크롤도 없다. 스텁이 없으면 useVerticalFeed 의
+ *  관찰자 경로가 통째로 꺼져 실제 브라우저에 존재하지 않는 상태로 테스트가 돈다.
+ *  그 상태에서는 이동 잠금이 관찰자 확인 대신 타임아웃으로만 풀려 테스트가 느려진다.
+ */
+function stubScrollObserver() {
+  const callbacks = new Set<(entries: unknown[]) => void>();
+  const targets = new WeakSet<Element>();
+
+  class FakeIntersectionObserver {
+    constructor(private cb: (entries: unknown[]) => void) {
+      callbacks.add(cb);
+    }
+    observe(el: Element) {
+      targets.add(el);
+    }
+    disconnect() {
+      callbacks.delete(this.cb);
+    }
+  }
+  vi.stubGlobal('IntersectionObserver', FakeIntersectionObserver);
+
+  // 스크롤이 시작되면 그 슬라이드가 화면을 채웠다고 알린다.
+  Element.prototype.scrollIntoView = vi.fn(function (this: Element) {
+    if (!targets.has(this)) return;
+    const entry = { target: this, isIntersecting: true, intersectionRatio: 1 };
+    callbacks.forEach((cb) => cb([entry]));
+  });
+}
 
 function editionFor(date: string): EditionContent {
   return {
@@ -103,6 +134,10 @@ async function advance(container: HTMLElement, to: number) {
 async function advanceTo(container: HTMLElement, target: number) {
   for (let i = 1; i <= target; i += 1) await advance(container, i);
 }
+
+beforeEach(() => {
+  stubScrollObserver();
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();

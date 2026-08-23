@@ -18,6 +18,7 @@ import argparse
 import datetime
 import io
 import json
+import re
 import sys
 import urllib.parse
 from collections.abc import Callable, Collection
@@ -46,15 +47,161 @@ DEFAULT_NEWS_URL = "http://localhost:8000/api/news?asset=btc&limit=500"
 # 집계는 24시간에 무슨 일이 있었는지 전부 봐야 한다. 같은 소스를 따로, 넓게 받는다
 # (2026-08-05 실측: 24h 코퍼스 205건인데 카드 후보 필터를 거치면 20건만 남았다).
 DEFAULT_TRENDING_NEWS_URL = "http://localhost:8000/api/news?asset=btc&limit=500"
+# 매크로 보강 풀. my-news 의 asset=btc 는 달러·금리·연준 기사를 상당수 놓친다
+# (2026-08-24 실측: 워시 첫 잭슨홀 연설, 연준의 10년 초과 국채 1.62조달러 보유,
+# 빅테크 회사채가 국채금리를 밀어올린 건이 전부 asset=btc 밖에 있었다).
+# 그래서 asset 필터 없이 한 번 더 받되 **macro 등급만** 취한다 — 이 피드는 AI·일반
+# 뉴스가 대부분이고, 그중 일부는 내용과 무관한 tags:['bitcoin'] 이 붙어 있어
+# 그대로 두면 야구 기사가 btc 등급으로 샌다(실측). 등급 제한이 그 방어선이다.
+DEFAULT_MACRO_NEWS_URL = "http://localhost:8000/api/news?limit=500"
 # full=1 없으면 my-youtube 가 summary/highlights/description 을 뺀 경량 응답을 준다.
 # 그러면 filter_videos 의 `summary` 조건에 전부 걸려 후보가 조용히 0건이 된다(2026-08-05).
 DEFAULT_YOUTUBE_URL = "http://localhost:23456/api/queue?full=1"
 # 표지 인용구 중복 회피는 "실제로 발행된 것"을 봐야 한다 — 로컬 DB는 리허설 발행까지
 # 섞여 있어 기준이 안 된다. 그래서 다른 소스와 달리 기본값이 프로덕션이다.
 DEFAULT_EDITION_API = "https://daily.onebitebitcoin.com"
-NEWS_LIMIT = 20
-NEWS_BUCKETS = 4  # 24h 창을 6시간씩 4구간으로 나눈다
-VIDEO_LIMIT = 5
+# 카드 후보 뉴스 창. 트렌딩 집계 창(24h)과 다르다 — 집계는 "그날 무슨 일이
+# 있었나"라서 하루로 잘라야 맞지만, 카드 후보는 고를 게 많을수록 좋다.
+# 2026-08-24 실측: 24h 는 btc 등급 69건인데 36h 로 늘리면 108건이 된다.
+# 영상 창(VIDEO_WINDOW_HOURS)이 이미 48h 인 것과 같은 취지다.
+NEWS_WINDOW_HOURS = 36
+# 후보 수. 2026-08-24 실측으로 20에서 올렸다 — 그날 24h 코퍼스 108건 중 20건만
+# 후보가 됐고, 잘려나간 88건 안에 그날 트렌딩 1위였던 CFTC 비트코인 무기한선물
+# 승인, 비트코인 코어 암호화 라우팅 재검토, 채굴사 IPO 가 전부 들어 있었다.
+# 창을 36h 로 넓히면 btc 등급이 108건이라 60 으로는 다시 꼬리가 잘린다 — 창을
+# 넓힌 의미가 없어지므로 같이 올린다. 비용은 후보당 이미지 1장 다운로드인데
+# 디스크 캐시가 있어 배치가 몇십 초 길어지는 정도다.
+NEWS_LIMIT = 100
+NEWS_BUCKETS = 4  # 창을 4등분해 시간대별로 고르게 뽑는다
+# 매크로 등급에 떼어두는 자리. 등급 순서대로만 채우면 btc 가 NEWS_LIMIT 을 그대로
+# 다 먹어(2026-08-24: 36h btc 등급 108건) 매크로가 한 건도 못 올라온다 — 카드가
+# 매크로를 쓸 수 있으려면 후보에 보이기부터 해야 한다.
+MACRO_RESERVE = 12
+
+# 후보의 비트코인 관련도 등급. 앞에 올수록 먼저 후보 자리를 가져간다.
+# 카드는 비트코인 온리가 1순위이고, 물량이 모자라면 알트·크립토 일반 소재 대신
+# 매크로(달러·금리·연준·국채)로 채운다 — 2026-08-24 편집 방침.
+RELEVANCE_TIERS = ("btc", "macro", "other")
+
+# 관련도 판정 키워드. title 은 가중치 3, summary+tags 는 1로 센다(_relevance_score).
+# ASCII 항목은 단어 경계로, 한글 항목은 부분 문자열로 맞춘다.
+BTC_TERMS = (
+    "비트코인",
+    "btc",
+    "bitcoin",
+    "사토시",
+    "satoshi",
+    "반감기",
+    "halving",
+    "해시레이트",
+    "hashrate",
+    "해시프라이스",
+    "hashprice",
+    "채굴",
+    "mining",
+    "miner",
+    "난이도",
+    "라이트닝",
+    "lightning",
+    "utxo",
+    "탭루트",
+    "taproot",
+    "세그윗",
+    "segwit",
+    "코인베이스 프리미엄",
+    "퓨엘 멀티플",
+    "puell",
+    "mvrv",
+    "단기 보유자",
+    "장기 보유자",
+    "제네시스 블록",
+)
+# "온체인"은 체인 중립 용어라 넣지 않는다 — 넣으면 이더리움 온체인 기사가 btc 로 샌다.
+ALT_TERMS = (
+    "이더리움",
+    "ethereum",
+    "eth",
+    "이더 ",
+    "xrp",
+    "리플",
+    "ripple",
+    "솔라나",
+    "solana",
+    "알트코인",
+    "altcoin",
+    "스테이블코인",
+    "stablecoin",
+    "usdt",
+    "usdc",
+    "테더",
+    "tether",
+    "서클",
+    "지캐시",
+    "zcash",
+    "스택스",
+    "stacks",
+    "체인링크",
+    "chainlink",
+    "도지",
+    "doge",
+    "밈코인",
+    "memecoin",
+    "nft",
+    "디파이",
+    "defi",
+    "이캐시",
+    "부테린",
+    "buterin",
+    "하이퍼리퀴드",
+    "hyperliquid",
+    "토큰화",
+    "layer 1",
+    "레이어1",
+)
+# "달러"는 단독으로 쓰지 않는다 — 코인 시세 헤드라인이 전부 "N달러"라 매크로가 오염된다.
+MACRO_TERMS = (
+    "달러인덱스",
+    "dxy",
+    "달러 약세",
+    "달러 강세",
+    "금리",
+    "국채",
+    "treasury",
+    "t-bill",
+    "채권",
+    "연준",
+    "fed",
+    "fomc",
+    "파월",
+    "잭슨홀",
+    "jackson hole",
+    "인플레이션",
+    "inflation",
+    "cpi",
+    "pce",
+    "물가",
+    "고용지표",
+    "실업률",
+    "금값",
+    "골드",
+    "gold",
+    "나스닥",
+    "nasdaq",
+    "s&p",
+    "증시",
+    "바이백",
+    "buyback",
+    "양적완화",
+    "수익률 곡선",
+    "yield curve",
+    "환율",
+    "엔화",
+    "관세",
+    "tariff",
+)
+# 영상 후보 수. 5 는 실측상 너무 좁았다 — 2026-08-24 에 48h 안에서 요약까지
+# 끝난 비트코인 영상이 21건이었는데 상위 5건만 후보가 됐다.
+VIDEO_LIMIT = 15
 # 영상 창은 게시 시각 기준 48h. 24h 로 좁히면 my-youtube 가 요약을 늦게 끝낸 영상이
 # 통째로 빠진다 — 게시 25h 뒤에 요약이 붙는 경우가 흔하다.
 VIDEO_WINDOW_HOURS = 48
@@ -174,62 +321,211 @@ def get_image_hash(client: httpx.Client, url: str, cache: dict[str, int]) -> int
     return digest
 
 
+# 화제성 우선권을 줄 트렌딩 토픽 수. rank_topics 는 상위 15개를 내는데, 그 꼬리는
+# 매체 한 곳이 한 번 언급한 수준이라 "여러 매체가 동시에 다뤘다"는 신호가 약하다.
+TRENDING_PRIORITY_TOPICS = 8
+
+
+def trending_article_urls(topics: list[dict[str, Any]]) -> list[str]:
+    """상위 TRENDING_PRIORITY_TOPICS 개 토픽에 걸린 기사 url — filter_news 의 우선권 목록."""
+    urls: list[str] = []
+    for topic in topics[:TRENDING_PRIORITY_TOPICS]:
+        for article in topic.get("articles") or []:
+            url = article.get("url")
+            if isinstance(url, str):
+                urls.append(url)
+    return list(dict.fromkeys(urls))
+
+
+def _term_hits(text: str, terms: tuple[str, ...]) -> int:
+    """text 에 등장한 terms 의 종류 수. 같은 단어가 여러 번 나와도 1로 센다."""
+    count = 0
+    for term in terms:
+        if term.isascii():
+            # "eth" 가 "method" 에, "gold" 가 "goldman" 에 걸리지 않게 단어 경계로 맞춘다.
+            if re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", text):
+                count += 1
+        elif term in text:
+            count += 1
+    return count
+
+
+def _relevance_score(news: dict[str, Any], terms: tuple[str, ...]) -> int:
+    """제목 가중치 3, summary+tags 가중치 1로 매긴 키워드 점수."""
+    title = str(news.get("title") or "").lower()
+    rest = " ".join(str(news.get(key) or "") for key in ("summary", "tags")).lower()
+    return 3 * _term_hits(title, terms) + _term_hits(rest, terms)
+
+
+def classify_relevance(news: dict[str, Any]) -> str:
+    """기사를 RELEVANCE_TIERS 중 하나로 분류한다 — "btc" / "macro" / "other".
+
+    비트코인 점수가 알트 점수 이상이면 btc, 아니면 매크로 점수가 알트 이상일 때
+    macro, 나머지는 other. 동점을 btc·macro 쪽에 주는 건 의도한 것이다 — 이 등급은
+    후보를 자르는 게이트가 아니라 **후보 자리를 누가 먼저 가져가느냐**를 정하는
+    우선순위라서, 카드 10장을 고르는 사람이 한 번 더 거른다. 애매한 건을 빼서
+    아예 안 보이게 만드는 쪽이 훨씬 비싸다(2026-08-24: 그날 트렌딩 1위 기사가
+    후보에 없었다).
+
+    2026-08-24 코퍼스 108건 실측: btc 71 / macro 3 / other 34 로 갈렸고, other 에는
+    스택스·잭엑스비티·XRP 시황·이더리움·스테이블코인처럼 그날 카드에서 빼고 싶었던
+    소재가 모여 있었다.
+    """
+    btc = _relevance_score(news, BTC_TERMS)
+    alt = _relevance_score(news, ALT_TERMS)
+    if btc and btc >= alt:
+        return "btc"
+    if _relevance_score(news, MACRO_TERMS) >= max(alt, 1):
+        return "macro"
+    return "other"
+
+
+def _round_robin_by_bucket(
+    items: list[dict[str, Any]],
+    now: datetime.datetime,
+    limit: int,
+    priority_urls: Collection[str] = (),
+) -> list[dict[str, Any]]:
+    """창을 NEWS_BUCKETS 구간으로 나눠 구간별 라운드로빈으로 limit 건 뽑는다.
+
+    구간 안에서는 priority_urls 에 든 기사를 먼저, 그 다음 최신순으로 정렬한다.
+    """
+    if limit <= 0:
+        return []
+    priority = set(priority_urls)
+    bucket_hours = NEWS_WINDOW_HOURS / NEWS_BUCKETS
+    buckets: list[list[dict[str, Any]]] = [[] for _ in range(NEWS_BUCKETS)]
+    for n in items:
+        age_h = (now - _parse_dt(n["crawled_at"])).total_seconds() / 3600
+        # 클록 스큐 등으로 age_h 가 음수/창 초과로 튀어도 유효 구간 안에 묶는다.
+        index = min(max(int(age_h // bucket_hours), 0), NEWS_BUCKETS - 1)
+        buckets[index].append(n)
+    for bucket in buckets:
+        bucket.sort(
+            key=lambda n: (
+                n.get("url") not in priority,
+                -_parse_dt(n["crawled_at"]).timestamp(),
+            )
+        )
+
+    picked: list[dict[str, Any]] = []
+    cursors = [0] * NEWS_BUCKETS
+    while len(picked) < limit and any(cursors[i] < len(buckets[i]) for i in range(NEWS_BUCKETS)):
+        for i in range(NEWS_BUCKETS):
+            if len(picked) >= limit:
+                break
+            if cursors[i] < len(buckets[i]):
+                picked.append(buckets[i][cursors[i]])
+                cursors[i] += 1
+    return picked
+
+
+def macro_topups(
+    items: list[dict[str, Any]],
+    now: datetime.datetime,
+    exclude_urls: Collection[str] = (),
+) -> list[dict[str, Any]]:
+    """asset 필터 없는 피드에서 **macro 등급만** 골라낸다 — 매크로 보강 풀.
+
+    btc 등급은 일부러 버린다. 이 피드는 AI·일반 뉴스가 대부분이고 그중 일부에
+    내용과 무관한 `tags: ['bitcoin']` 이 붙어 있어(2026-08-24 실측: KBO 야구 기사
+    3건이 그렇게 btc 로 분류됐다) 그대로 받으면 후보 상단이 오염된다. 비트코인
+    기사는 my-news 가 이미 asset=btc 로 걸러 주므로 여기서 또 주울 이유도 없다.
+
+    exclude_urls 는 기본 피드에서 이미 받은 url 이다 — 두 피드가 겹치는 만큼
+    중복으로 들어오는 걸 막는다.
+    """
+    seen = set(exclude_urls)
+    cutoff = now - datetime.timedelta(hours=NEWS_WINDOW_HOURS)
+    picked: list[dict[str, Any]] = []
+    for news in items:
+        url = news.get("url")
+        if not url or url in seen or news.get("is_duplicate"):
+            continue
+        crawled = news.get("crawled_at")
+        if not crawled or _parse_dt(crawled) < cutoff:
+            continue
+        if classify_relevance(news) != "macro":
+            continue
+        seen.add(url)
+        picked.append(news)
+    return picked
+
+
 def filter_news(
     items: list[dict[str, Any]],
     now: datetime.datetime,
     exclude_image_hashes: Collection[int] = (),
     hash_image: Callable[[str], int | None] | None = None,
+    priority_urls: Collection[str] = (),
 ) -> list[dict[str, Any]]:
-    """중복을 배제하고 24h 창을 통과한 기사를, 시간대별로 고르게 뽑는다.
+    """NEWS_WINDOW_HOURS 창을 통과한 기사를 관련도 순으로, 시간대별로 고르게 뽑는다.
 
-    예전에는 crawled_at 내림차순 단일 정렬로 상위 NEWS_LIMIT 건을 잘랐다(정렬
-    보조키였던 dup_count 는 실측상 20건 중 19~20건이 0이라 사실상 상수였고,
-    정렬 의도를 오독하게만 했다 — 제거). 크론이 06:00 KST 에 도는 탓에 그 직전
-    몇 시간(=미국 장중)에 기사가 몰리면 그 시간대만 상위를 독차지해, 카드 후보
-    20건이 하루 24시간 중 평균 27%(최악 9%)밖에 못 덮었다(2026-08-18 진단).
+    두 축이 겹쳐 있다.
 
-    24시간을 NEWS_BUCKETS 개 구간(각 6시간)으로 나눠 구간별로 최신순 정렬한 뒤
-    라운드로빈으로 한 건씩 뽑으면, 특정 시간대가 없거나 얇아도 다른 구간이 그
-    몫을 채우면서 하루 전체에서 소재가 나온다.
+    **관련도(바깥 축).** RELEVANCE_TIERS 순서대로 btc 를 먼저 채우고, 남으면
+    macro, 그래도 남으면 other 로 채운다. 카드가 비트코인 온리를 1순위로 두고
+    물량이 모자랄 때 알트 대신 매크로를 쓰기 때문이다. 다만 btc 만으로 상한이
+    차버리면 매크로가 후보에 아예 안 보이므로, macro 후보가 있는 만큼
+    MACRO_RESERVE 자리까지는 btc 몫에서 떼어 남겨둔다. 2026-08-24 진단: 코퍼스
+    108건 중 20건만 후보가 됐는데 관련도 정렬이 없어, 그날 트렌딩 1위였던 CFTC
+    비트코인 무기한선물 승인은 빠지고 이더리움 시세·지캐시 기사는 들어왔다.
+
+    **시간대(안쪽 축).** 각 등급 안에서는 창을 NEWS_BUCKETS 개 구간으로 나눠
+    구간별 라운드로빈으로 뽑는다. 크론이 06:00 KST 에 도는 탓에 그 직전 몇 시간
+    (=미국 장중)에 기사가 몰리면 그 시간대가 상위를 독차지해, 카드 후보가 하루
+    24시간 중 평균 27%(최악 9%)밖에 못 덮었다(2026-08-18 진단).
+
+    **화제성(구간 안 정렬).** priority_urls 는 보통 rank_topics 상위 토픽에 걸린
+    기사들의 url 이다. 구간 안에서 이들을 최신순보다 앞에 둔다 — 등급이 같아도
+    여러 매체가 동시에 다룬 사건이 먼저 후보 자리를 가져가야 지엽적인 단발 기사에
+    밀리지 않는다. 2026-08-24 에는 btc 등급만 71건이라 40 컷에서 그날 트렌딩 1위
+    (CFTC 비트코인 무기한선물 승인)가 잘려나갔다. 안 넘기면 예전처럼 최신순이다.
+
+    돌려주는 각 항목에는 `relevance` 키가 붙는다(카드 10장을 고를 때 쓴다).
 
     exclude_image_hashes(recent_image_hashes)와 hash_image(url -> average hash,
     보통 get_image_hash 를 클라이언트/캐시에 바인딩한 클로저)가 둘 다 주어지면,
     최종 선정된 후보 중 이미지가 최근 발행분과 해밍거리 IMAGE_HASH_MAX_DISTANCE
     이하로 겹치는 것의 image_url 을 None 으로 뗀다(기사 자체는 남긴다) — 같은
-    draft 안에서 후보끼리 겹쳐도 마찬가지다. 라운드로빈으로 뽑힌 20건에만
+    draft 안에서 후보끼리 겹쳐도 마찬가지다. 최종 선정된 NEWS_LIMIT 건에만
     적용한다 — 원본 최대 500건을 전부 내려받으면 느리고 낭비다. hash_image 를
     안 넘기면(기본값) 이미지 중복배제를 건너뛴다 — 예전과 동일하게 동작한다.
 
-    items 와 그 안의 dict 를 변형하지 않는다(이미지가 떨어져 나간 항목은 새
-    dict 로 돌려준다).
+    items 와 그 안의 dict 를 변형하지 않는다(relevance 가 붙은 항목도, 이미지가
+    떨어져 나간 항목도 새 dict 로 돌려준다).
     """
-    cutoff = now - datetime.timedelta(hours=24)
-    fresh = [n for n in items if not n.get("is_duplicate") and _parse_dt(n["crawled_at"]) >= cutoff]
+    cutoff = now - datetime.timedelta(hours=NEWS_WINDOW_HOURS)
+    fresh = [
+        {**n, "relevance": classify_relevance(n)}
+        for n in items
+        if not n.get("is_duplicate") and _parse_dt(n["crawled_at"]) >= cutoff
+    ]
 
-    bucket_hours = 24 / NEWS_BUCKETS
-    buckets: list[list[dict[str, Any]]] = [[] for _ in range(NEWS_BUCKETS)]
-    for n in fresh:
-        age_h = (now - _parse_dt(n["crawled_at"])).total_seconds() / 3600
-        # 클록 스큐 등으로 age_h 가 음수/24h 초과로 튀어도 유효 구간 안에 묶는다.
-        index = min(max(int(age_h // bucket_hours), 0), NEWS_BUCKETS - 1)
-        buckets[index].append(n)
-    for bucket in buckets:
-        bucket.sort(key=lambda n: _parse_dt(n["crawled_at"]), reverse=True)
+    by_tier = {tier: [n for n in fresh if n["relevance"] == tier] for tier in RELEVANCE_TIERS}
+    # btc 가 상한을 다 먹지 않도록, 실제로 있는 만큼만 매크로 자리를 떼어둔다.
+    reserved = min(MACRO_RESERVE, len(by_tier["macro"]))
 
     picked: list[dict[str, Any]] = []
-    cursors = [0] * NEWS_BUCKETS
-    while len(picked) < NEWS_LIMIT and any(
-        cursors[i] < len(buckets[i]) for i in range(NEWS_BUCKETS)
-    ):
-        for i in range(NEWS_BUCKETS):
-            if len(picked) >= NEWS_LIMIT:
-                break
-            if cursors[i] < len(buckets[i]):
-                picked.append(buckets[i][cursors[i]])
-                cursors[i] += 1
+    for tier in RELEVANCE_TIERS:
+        room = NEWS_LIMIT - len(picked)
+        if tier == "btc":
+            room -= reserved
+        if room <= 0:
+            continue
+        picked.extend(_round_robin_by_bucket(by_tier[tier], now, room, priority_urls))
 
-    # draft 를 사람이 읽을 땐 최신순이 자연스럽다 — 구간 배정과 무관하게 재정렬.
-    picked.sort(key=lambda n: _parse_dt(n["crawled_at"]), reverse=True)
+    # draft 를 사람이 읽을 땐 등급 → 화제성 → 최신순이 자연스럽다. 위에서부터 읽으면
+    # 비트코인 온리에 여러 매체가 동시에 다룬 사건이 먼저 나온다 — 카드 10장을 고를 때
+    # 실제로 훑는 순서가 그거다.
+    priority = set(priority_urls)
+    picked.sort(
+        key=lambda n: (
+            RELEVANCE_TIERS.index(n["relevance"]),
+            n.get("url") not in priority,
+            -_parse_dt(n["crawled_at"]).timestamp(),
+        )
+    )
 
     if hash_image is not None:
         picked = _dedupe_image_urls(picked, exclude_image_hashes, hash_image)
@@ -441,7 +737,7 @@ def build_skeleton(
 def window_end(date: datetime.date, today_kst: datetime.date) -> datetime.datetime:
     """오늘이면 지금 이 순간(실시간 최근 24h), 과거 날짜면 그날 자정(KST) 기준 24h 창.
 
-    filter_news/filter_videos 는 항상 "이 시각으로부터 24시간 전까지"만 본다 —
+    filter_news/filter_videos 는 항상 "이 시각으로부터 각자의 창 길이만큼 전까지"만 본다 —
     과거 날짜를 백필할 때는 그 날짜가 끝나는 자정을 기준점으로 삼아야 그날 하루가
     창에 들어온다.
     """
@@ -610,6 +906,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--out", help="기본값: <repo>/drafts/draft-<date>.json")
     parser.add_argument("--news-url", default=DEFAULT_NEWS_URL)
     parser.add_argument("--trending-news-url", default=DEFAULT_TRENDING_NEWS_URL)
+    parser.add_argument("--macro-news-url", default=DEFAULT_MACRO_NEWS_URL)
     parser.add_argument("--youtube-url", default=DEFAULT_YOUTUBE_URL)
     parser.add_argument(
         "--edition-api",
@@ -647,13 +944,31 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None) -> P
         used_image_hashes = recent_image_hashes(
             client, args.edition_api, date, RECENT_IMAGE_DAYS, image_hash_cache
         )
+        # 트렌딩 집계를 카드 후보 선별보다 먼저 돌린다 — 그날 여러 매체가 동시에
+        # 다룬 사건이 무엇인지 알아야 후보 40 자리를 그쪽에 먼저 줄 수 있다.
+        trending_news = trending_pool_news(trending_news_raw, window_end_utc)
+        trending_videos = trending_pool_videos(yt_raw, window_end_utc)
+        trending_candidates = rank_topics(trending_news, trending_videos, window_end_utc)
+        trending_corpus = corpus_summary(trending_news, trending_videos)
+        hot_urls = trending_article_urls(trending_candidates)
         # 후보 이미지 해시도 같은 클라이언트·캐시로 계산한다. filter_news 는 URL 만
         # 넘기므로 클로저로 묶어 둔다.
+        # 매크로 보강. 실패해도 수집을 막지 않는다 — 있으면 좋은 것이지, 피드 하나
+        # 때문에 06:00 배치가 죽으면 손해가 훨씬 크다.
+        try:
+            macro_raw = fetch_json(client, args.macro_news_url, "my-news(macro)")
+        except (httpx.HTTPError, SystemExit) as exc:
+            print(f"경고: 매크로 보강 피드를 못 읽어 건너뛴다 ({exc!r})", file=sys.stderr)
+            macro_raw = []
+        macro_extra = macro_topups(
+            macro_raw, window_end_utc, {n.get("url") for n in news_raw if n.get("url")}
+        )
         news = filter_news(
-            news_raw,
+            news_raw + macro_extra,
             window_end_utc,
             used_image_hashes,
             lambda url: get_image_hash(client, url, image_hash_cache),
+            hot_urls,
         )
         _save_image_hash_cache(image_hash_cache)
     finally:
@@ -670,7 +985,7 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None) -> P
 
     if not news and not videos:
         raise SystemExit(
-            f"{date.isoformat()} 기준 24시간 내 후보가 없다 — 소스 응답이나 "
+            f"{date.isoformat()} 기준 창 안에 후보가 없다 — 소스 응답이나 "
             "--news-url limit(과거 날짜는 500건으로 부족할 수 있다)을 확인하라."
         )
 
@@ -691,11 +1006,7 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None) -> P
         sources,
         as_cover_quote(quote),
     )
-    # 집계는 카드 후보(뉴스 20 · 영상 5)가 아니라 24시간 코퍼스 전체를 본다.
-    trending_news = trending_pool_news(trending_news_raw, window_end_utc)
-    trending_videos = trending_pool_videos(yt_raw, window_end_utc)
-    trending_candidates = rank_topics(trending_news, trending_videos, window_end_utc)
-    trending_corpus = corpus_summary(trending_news, trending_videos)
+    # 집계는 카드 후보(NEWS_LIMIT · VIDEO_LIMIT)가 아니라 24시간 코퍼스 전체를 본다.
 
     out_path = (
         Path(args.out) if args.out else REPO_ROOT / "drafts" / f"draft-{date.isoformat()}.json"
@@ -715,7 +1026,11 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None) -> P
         encoding="utf-8",
     )
 
-    print(f"news candidates: {len(news)}")
+    tier_counts = {t: sum(1 for n in news if n.get("relevance") == t) for t in RELEVANCE_TIERS}
+    print(
+        f"news candidates: {len(news)} — "
+        + " / ".join(f"{tier} {count}" for tier, count in tier_counts.items())
+    )
     print(
         f"video candidates: {len(videos)} — 최근 {RECENT_VIDEO_DAYS}일 발행분 "
         f"{len(used_video_ids)}건 제외"
