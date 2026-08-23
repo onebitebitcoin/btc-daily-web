@@ -108,7 +108,7 @@ python scripts/recent_editions.py --api https://daily.onebitebitcoin.com
 | `body` | **200자 내외** 한국어, **했습니다체**. 숫자와 고유명사를 살린다 |
 | `quote` | 한 줄 촌철살인, **했습니다체**. 없으면 `null` (전부 채우지 말 것 — 8~9개 정도) |
 | `link` | `{label: "<매체명> 원문", href: 후보의 url}` |
-| `media` | `{image: 후보의 image_url 또는 유튜브 썸네일, href: null, cta: null}`. 이미지 없으면 `media: null` |
+| `media` | `{image: ..., href: null, cta: null}`. 고르는 순서는 `CONTENT_CONTRACT.md` **4.0절**을 따른다 — 후보의 `image_url`은 정답이 아니라 3순위다. 이미지 없으면 `media: null` |
 
 작성 규칙:
 - **`body`·`quote`는 했습니다체**, `title`은 **명사형 종결** 헤드라인. `CONTENT_CONTRACT.md` 2.1·2.1.1절.
@@ -118,6 +118,11 @@ python scripts/recent_editions.py --api https://daily.onebitebitcoin.com
 - 이모지 금지 (프로젝트 CLAUDE.md 규칙)
 - 사실만. 후보 데이터에 없는 숫자를 지어내지 마라
 - `body`에 인용구를 반복하지 마라
+- **이미지를 눈으로 봐라.** 카드 10장의 이미지는 URL만 넣고 끝내지 말고 실제로 열어
+  기사와 맞는지 확인한다. 2026-08-19~23 발행 48장 점검 결과 23%가 무관한 그림이었다
+  (채굴 카드에 테더 로고, ETF 카드에 채굴기 사진). 고르는 순서는
+  `CONTENT_CONTRACT.md` 4.0절 — **기사 본문 실사진 → 같은 기업·인물 실사진 →
+  후보 `image_url` → `media: null`**. AI 생성물 중 글자가 깨진 것은 반드시 뺀다.
 - **유튜브 썸네일 주의**: 썸네일은 채널이 만든 마케팅 그래픽이라 숫자가 크게 박혀 있고
   영상 내용·실제 사실과 어긋나는 경우가 있다. 썸네일에 숫자/단정 문구가 보이면 본문과
   충돌하지 않는지 확인하고, **충돌하면 그 카드는 `media: null`로 둔다.**

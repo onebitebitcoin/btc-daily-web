@@ -89,22 +89,260 @@ def test_filter_news_excludes_older_than_24h() -> None:
     assert result[0]["crawled_at"] == "2026-07-31T01:00:00+00:00"
 
 
-def test_filter_news_sorts_by_dup_count_then_recency() -> None:
-    a = make_news(source_ref="A", dup_count=0, crawled_at="2026-07-31T02:50:00+00:00")
-    b = make_news(source_ref="B", dup_count=3, crawled_at="2026-07-31T01:00:00+00:00")
-    c = make_news(source_ref="C", dup_count=0, crawled_at="2026-07-31T02:55:00+00:00")
+def test_filter_news_ignores_dup_count_for_ordering() -> None:
+    """dup_count 는 더 이상 정렬에 관여하지 않는다.
+
+    실측상 dup_count 가 거의 항상 0이라 죽은 정렬키였다 — 그 자리를 시간 균등
+    선별(NEWS_BUCKETS)이 대신한다. dup_count 를 crawled_at 과 반대로 둬서(가장
+    오래된 게 dup_count 최대) 옛 정렬키였다면 뒤집혔을 순서가 crawled_at
+    내림차순 그대로 나오는지 확인한다.
+    """
+    a = make_news(source_ref="A", dup_count=0, crawled_at="2026-07-31T02:55:00+00:00")
+    b = make_news(source_ref="B", dup_count=3, crawled_at="2026-07-31T02:50:00+00:00")
+    c = make_news(source_ref="C", dup_count=9, crawled_at="2026-07-31T02:45:00+00:00")
 
     result = collect_daily.filter_news([a, b, c], NOW)
 
-    assert [n["source_ref"] for n in result] == ["B", "C", "A"]
+    assert [n["source_ref"] for n in result] == ["A", "B", "C"]
+
+
+def test_filter_news_orders_within_a_bucket_by_recency() -> None:
+    """같은 6시간 구간 안에서는 crawled_at 이 더 최근인 기사가 먼저 나온다."""
+    items = [
+        make_news(source_ref="oldest", crawled_at="2026-07-31T02:00:00+00:00"),
+        make_news(source_ref="newest", crawled_at="2026-07-31T02:50:00+00:00"),
+        make_news(source_ref="middle", crawled_at="2026-07-31T02:25:00+00:00"),
+    ]
+
+    result = collect_daily.filter_news(items, NOW)
+
+    assert [n["source_ref"] for n in result] == ["newest", "middle", "oldest"]
+
+
+def test_filter_news_round_robins_evenly_across_the_four_buckets() -> None:
+    """15/5/5/5 건으로 쏠려 있어도 라운드로빈이라 각 구간에서 최소 5건씩 나온다.
+
+    NOW=2026-07-31T03:00 기준 구간은 6시간씩: b0=[21:00,03:00) b1=[15:00,21:00)
+    b2=[09:00,15:00) b3=[03:00,09:00)(전날). b0 에 15건, b1/b2/b3 에 각 5건을 두면
+    라운드로빈(구간당 1건씩, 0→1→2→3 순회)은 5라운드 만에 정확히 20건에 닿는다 —
+    b1/b2/b3 는 가진 5건을 전부 내주고, b0 는 15건 중 가장 최신 5건만 내준다.
+    최종 반환은 crawled_at 내림차순이고 구간끼리는 시간이 겹치지 않으므로,
+    구간 순서(b0→b1→b2→b3) 그대로 이어붙인 모양이 된다.
+    """
+    b0 = [
+        make_news(
+            source_ref=f"b0-{i}", crawled_at=(NOW - datetime.timedelta(minutes=i + 1)).isoformat()
+        )
+        for i in range(15)
+    ]
+    b1_base = NOW - datetime.timedelta(hours=7)
+    b1 = [
+        make_news(
+            source_ref=f"b1-{i}", crawled_at=(b1_base - datetime.timedelta(minutes=i)).isoformat()
+        )
+        for i in range(5)
+    ]
+    b2_base = NOW - datetime.timedelta(hours=13)
+    b2 = [
+        make_news(
+            source_ref=f"b2-{i}", crawled_at=(b2_base - datetime.timedelta(minutes=i)).isoformat()
+        )
+        for i in range(5)
+    ]
+    b3_base = NOW - datetime.timedelta(hours=19)
+    b3 = [
+        make_news(
+            source_ref=f"b3-{i}", crawled_at=(b3_base - datetime.timedelta(minutes=i)).isoformat()
+        )
+        for i in range(5)
+    ]
+
+    result = collect_daily.filter_news(b0 + b1 + b2 + b3, NOW)
+
+    expected = (
+        [f"b0-{i}" for i in range(5)]
+        + [f"b1-{i}" for i in range(5)]
+        + [f"b2-{i}" for i in range(5)]
+        + [f"b3-{i}" for i in range(5)]
+    )
+    assert [n["source_ref"] for n in result] == expected
+
+
+def test_filter_news_fills_20_from_remaining_buckets_when_others_are_empty() -> None:
+    """구간1·2가 비어 있어도(기사가 구간0·3에만 몰려 있어도) 20건을 채운다.
+
+    구간0에 18건, 구간3에 10건을 두면 라운드로빈이 빈 구간(1,2)을 건너뛰고
+    남은 두 구간(0,3)에서만 번갈아 뽑는다 — 20건에 닿으려면 각 10건씩 필요하고,
+    구간3은 정확히 10건을 갖고 있어 마침 그 시점에 소진된다.
+    """
+    b0 = [
+        make_news(
+            source_ref=f"b0-{i}", crawled_at=(NOW - datetime.timedelta(minutes=i + 1)).isoformat()
+        )
+        for i in range(18)
+    ]
+    b3_base = NOW - datetime.timedelta(hours=19)
+    b3 = [
+        make_news(
+            source_ref=f"b3-{i}", crawled_at=(b3_base - datetime.timedelta(minutes=i)).isoformat()
+        )
+        for i in range(10)
+    ]
+
+    result = collect_daily.filter_news(b0 + b3, NOW)
+    refs = [n["source_ref"] for n in result]
+
+    assert len(refs) == 20
+    assert sum(1 for r in refs if r.startswith("b0-")) == 10
+    assert sum(1 for r in refs if r.startswith("b3-")) == 10
 
 
 def test_filter_news_caps_at_20() -> None:
+    """30건이 전부 같은 6시간 구간(bucket0)에 몰려 있어 나머지 3구간은 빈다.
+
+    빈 구간이 있어도 유일하게 채워진 구간이 20건 몫을 전부 대신 내줘야 한다.
+    """
     items = [make_news(source_ref=str(i)) for i in range(30)]
 
     result = collect_daily.filter_news(items, NOW)
 
     assert len(result) == 20
+
+
+# ---- collect_daily 이미지 중복배제 (average hash) ----
+#
+# 실제 이미지를 내려받지 않는다 — hash_image 를 가짜 함수로 주입해 필터 로직만 본다.
+# 해시 계산 자체(average_hash)는 Pillow 로 만든 단색 이미지로 따로 확인한다.
+
+
+def solid_png(shade: int) -> bytes:
+    """한 가지 밝기로 채운 8x8 PNG. average_hash 테스트용."""
+    import io
+
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("L", (8, 8), shade).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def test_average_hash_is_stable_for_the_same_image() -> None:
+    image = solid_png(128)
+
+    assert collect_daily.average_hash(image) == collect_daily.average_hash(image)
+
+
+def test_average_hash_survives_resize() -> None:
+    """리사이즈된 같은 그림은 해밍거리가 임계값 안에 들어와야 한다.
+
+    토큰포스트처럼 같은 그림을 다른 크기·파일명으로 다시 올리는 매체를 잡는 근거다.
+    실측(2026-08-23)에서는 _th_860x0 · -560x305 같은 실제 리사이즈 변형이 전부
+    거리 0 으로 나왔다 — IMAGE_HASH_MAX_DISTANCE 를 0 쪽에 붙여 잡은 이유다.
+    """
+    import io
+
+    from PIL import Image
+
+    original = Image.new("L", (200, 120))
+    for x in range(200):
+        for y in range(120):
+            original.putpixel((x, y), (x * 255) // 200)
+    big, small = io.BytesIO(), io.BytesIO()
+    original.save(big, format="PNG")
+    original.resize((80, 48), Image.Resampling.LANCZOS).save(small, format="PNG")
+
+    a = collect_daily.average_hash(big.getvalue())
+    b = collect_daily.average_hash(small.getvalue())
+
+    assert a is not None and b is not None
+    assert collect_daily.hamming_distance(a, b) <= collect_daily.IMAGE_HASH_MAX_DISTANCE
+
+
+def test_average_hash_returns_none_for_undecodable_bytes(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert collect_daily.average_hash(b"not an image") is None
+    assert capsys.readouterr().err != ""
+
+
+def test_hamming_distance_counts_differing_bits() -> None:
+    assert collect_daily.hamming_distance(0b1010, 0b1010) == 0
+    assert collect_daily.hamming_distance(0b1010, 0b1011) == 1
+    assert collect_daily.hamming_distance(0b0000, 0b1111) == 4
+
+
+def test_filter_news_drops_image_url_matching_a_recent_edition() -> None:
+    """최근 발행분과 같은 이미지면 image_url 만 뗀다 — 기사 자체는 남는다."""
+    items = [make_news(source_ref="a", image_url="https://cdn/new.jpg")]
+
+    result = collect_daily.filter_news(items, NOW, [0b1010], lambda _url: 0b1010)
+
+    assert len(result) == 1
+    assert result[0]["image_url"] is None
+    assert result[0]["source_ref"] == "a"
+
+
+def test_filter_news_keeps_image_url_that_is_far_enough() -> None:
+    far = (1 << (collect_daily.IMAGE_HASH_MAX_DISTANCE + 1)) - 1  # 임계값보다 1비트 더 다르다
+    items = [make_news(source_ref="a", image_url="https://cdn/new.jpg")]
+
+    result = collect_daily.filter_news(items, NOW, [0], lambda _url: far)
+
+    assert result[0]["image_url"] == "https://cdn/new.jpg"
+
+
+def test_image_threshold_stays_tight_enough_to_avoid_false_positives() -> None:
+    """임계값이 느슨해지는 회귀를 막는다.
+
+    처음 12 로 뒀을 때 실제로 베이지색 서류함 일러스트와 네온 실루엣이 거리 11 로
+    묶여 멀쩡한 후보의 image_url 이 떨어졌다. 실측 표본에서 서로 다른 이미지의
+    최소 거리가 6이었으므로 임계값은 그보다 작아야 한다.
+    """
+    assert collect_daily.IMAGE_HASH_MAX_DISTANCE < 6
+
+
+def test_filter_news_drops_duplicate_images_within_the_same_draft() -> None:
+    """URL 이 달라도 같은 그림이면 뒤에 오는 쪽을 뗀다 — 토큰포스트 재업로드 대응."""
+    items = [
+        make_news(
+            source_ref="a", crawled_at="2026-07-31T02:00:00+00:00", image_url="https://cdn/x.jpg"
+        ),
+        make_news(
+            source_ref="b", crawled_at="2026-07-31T01:00:00+00:00", image_url="https://cdn/y.jpg"
+        ),
+    ]
+
+    result = collect_daily.filter_news(items, NOW, (), lambda _url: 0b1010)
+
+    assert result[0]["image_url"] == "https://cdn/x.jpg"  # 먼저 나온 쪽을 살린다
+    assert result[1]["image_url"] is None
+
+
+def test_filter_news_keeps_image_when_hashing_fails() -> None:
+    """다운로드/디코딩 실패는 판정 불가 — 지레 떼지 않는다."""
+    items = [make_news(source_ref="a", image_url="https://cdn/x.jpg")]
+
+    result = collect_daily.filter_news(items, NOW, [0b1010], lambda _url: None)
+
+    assert result[0]["image_url"] == "https://cdn/x.jpg"
+
+
+def test_filter_news_without_hash_image_behaves_as_before() -> None:
+    """hash_image 를 안 넘기면 예전과 동일하게 동작한다(기존 호출부 보호)."""
+    items = [make_news(source_ref="a", image_url="https://cdn/x.jpg")]
+
+    result = collect_daily.filter_news(items, NOW)
+
+    assert result[0]["image_url"] == "https://cdn/x.jpg"
+
+
+def test_filter_news_does_not_mutate_input_items() -> None:
+    original = make_news(source_ref="a", image_url="https://cdn/x.jpg")
+    items = [original]
+
+    collect_daily.filter_news(items, NOW, [0b1010], lambda _url: 0b1010)
+
+    assert original["image_url"] == "https://cdn/x.jpg"
 
 
 # ---- collect_daily.trending_pool_* (집계용 코퍼스 — 카드 후보 필터와 목적이 다르다) ----
@@ -210,6 +448,32 @@ def test_filter_videos_sorts_by_view_count_desc_capped_at_5() -> None:
     result = collect_daily.filter_videos(items, NOW)
 
     assert [v["id"] for v in result] == ["6", "5", "4", "3", "2"]
+
+
+def test_filter_videos_excludes_ids_in_exclude_ids() -> None:
+    items = [make_video(id="keep", view_count=100), make_video(id="skip", view_count=200)]
+
+    result = collect_daily.filter_videos(items, NOW, exclude_ids={"skip"})
+
+    assert [v["id"] for v in result] == ["keep"]
+
+
+def test_filter_videos_exclude_ids_defaults_to_empty_tuple() -> None:
+    """기존 2-인자 호출(exclude_ids 생략)이 그대로 동작해야 한다."""
+    items = [make_video(id="a", view_count=100), make_video(id="b", view_count=50)]
+
+    result = collect_daily.filter_videos(items, NOW)
+
+    assert [v["id"] for v in result] == ["a", "b"]
+
+
+def test_filter_videos_backfills_from_lower_ranked_after_exclusion() -> None:
+    """상위권이 exclude_ids 로 빠지면 그 아래가 VIDEO_LIMIT(5)까지 올라와야 한다."""
+    items = [make_video(id=str(i), view_count=100 - i) for i in range(7)]  # id "0" 이 최고 조회수
+
+    result = collect_daily.filter_videos(items, NOW, exclude_ids={"0", "1"})
+
+    assert [v["id"] for v in result] == ["2", "3", "4", "5", "6"]
 
 
 # ---- collect_daily.build_skeleton ----
@@ -645,9 +909,7 @@ def test_generate_qa_main_force_regenerates_existing_qa(
     assert data["cards"][0]["qa"][0]["question"] == "Q1"
 
 
-def test_generate_qa_missing_api_key_fails(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_generate_qa_missing_api_key_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     edition_path = _write_edition(tmp_path, num_cards=1)
     monkeypatch.setattr(generate_qa, "ENV_FILE", tmp_path / "nonexistent.env")
 
@@ -765,9 +1027,7 @@ def test_generate_qa_delay_applied_between_cards_not_before_first(
     sleeps: list[float] = []
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-        generate_qa.main(
-            [str(edition_path), "--delay", "7"], client=client, sleep=sleeps.append
-        )
+        generate_qa.main([str(edition_path), "--delay", "7"], client=client, sleep=sleeps.append)
 
     # 카드 2장, 둘 다 첫 시도에 성공 — 카드 사이 대기 1번만 걸리고, 첫 카드 전에는 없다.
     assert sleeps == [7.0]
@@ -980,3 +1240,207 @@ def test_recent_quote_ids_ignores_editions_whose_body_is_not_a_dict() -> None:
         )
 
     assert ids == ["hayek-curious-task"]
+
+
+# ---- collect_daily.recent_video_ids ----
+
+
+def _video_card(link_href: str | None = None, media_image: str | None = None) -> dict[str, Any]:
+    """recent_video_ids 가 읽는 카드 모양 — link.href 와 media.image 가 각각 id 출처다."""
+    return {
+        "link": {"href": link_href} if link_href else None,
+        "media": {"image": media_image} if media_image else None,
+    }
+
+
+def _video_edition_body(cards: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"cards": cards}
+
+
+def test_recent_video_ids_extracts_id_from_link_href_short_url() -> None:
+    bodies = {"2026-08-07": _video_edition_body([_video_card(link_href="https://youtu.be/abc123")])}
+
+    with httpx.Client(transport=_editions_handler(bodies)) as client:
+        ids = collect_daily.recent_video_ids(
+            client, "http://api", datetime.date(2026, 8, 8), days=3
+        )
+
+    assert ids == ["abc123"]
+
+
+def test_recent_video_ids_extracts_id_from_link_href_watch_url() -> None:
+    bodies = {
+        "2026-08-07": _video_edition_body(
+            [_video_card(link_href="https://www.youtube.com/watch?v=def456")]
+        )
+    }
+
+    with httpx.Client(transport=_editions_handler(bodies)) as client:
+        ids = collect_daily.recent_video_ids(
+            client, "http://api", datetime.date(2026, 8, 8), days=3
+        )
+
+    assert ids == ["def456"]
+
+
+def test_recent_video_ids_extracts_id_from_media_image_thumbnail() -> None:
+    bodies = {
+        "2026-08-07": _video_edition_body(
+            [_video_card(media_image="https://i.ytimg.com/vi/xyz789/hqdefault.jpg")]
+        )
+    }
+
+    with httpx.Client(transport=_editions_handler(bodies)) as client:
+        ids = collect_daily.recent_video_ids(
+            client, "http://api", datetime.date(2026, 8, 8), days=3
+        )
+
+    assert ids == ["xyz789"]
+
+
+def test_recent_video_ids_deduplicates_ids_appearing_in_multiple_cards() -> None:
+    bodies = {
+        "2026-08-06": _video_edition_body([_video_card(link_href="https://youtu.be/dup1")]),
+        "2026-08-07": _video_edition_body(
+            [
+                _video_card(link_href="https://youtu.be/dup1"),
+                _video_card(media_image="https://i.ytimg.com/vi/dup1/hqdefault.jpg"),
+            ]
+        ),
+    }
+
+    with httpx.Client(transport=_editions_handler(bodies)) as client:
+        ids = collect_daily.recent_video_ids(
+            client, "http://api", datetime.date(2026, 8, 8), days=3
+        )
+
+    assert ids == ["dup1"]
+
+
+def test_recent_video_ids_survives_null_or_non_dict_link_and_media() -> None:
+    """실데이터에 media: null 인 카드가 존재한다.
+
+    link/media 가 None 이거나 dict가 아니어도 죽지 않는다.
+    """
+    bodies = {
+        "2026-08-07": _video_edition_body(
+            [
+                {"link": None, "media": None},
+                {"link": "not-a-dict", "media": "not-a-dict"},
+                _video_card(link_href="https://youtu.be/ok1"),
+            ]
+        )
+    }
+
+    with httpx.Client(transport=_editions_handler(bodies)) as client:
+        ids = collect_daily.recent_video_ids(
+            client, "http://api", datetime.date(2026, 8, 8), days=3
+        )
+
+    assert ids == ["ok1"]
+
+
+def test_recent_video_ids_survives_a_dead_api(capsys: pytest.CaptureFixture[str]) -> None:
+    # recent_quote_ids 와 같은 방어 자세 — 발행 이력 조회가 안 된다고 수집이 죽으면 안 된다.
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, json={})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        ids = collect_daily.recent_video_ids(
+            client, "http://api", datetime.date(2026, 8, 8), days=3
+        )
+
+    assert ids == []
+    assert capsys.readouterr().err != ""
+
+
+# ---- collect_daily.recent_image_hashes ----
+
+
+def _image_card(media_image: str | None) -> dict[str, Any]:
+    return {"media": {"image": media_image} if media_image else None}
+
+
+def _image_editions_handler(
+    bodies: dict[str, Any], images: dict[str, bytes]
+) -> httpx.MockTransport:
+    """발행 이력 API + 이미지 CDN 을 한 트랜스포트로 흉내낸다."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if url in images:
+            return httpx.Response(200, content=images[url])
+        if request.url.path == "/api/editions":
+            return httpx.Response(200, json=[{"date": d} for d in sorted(bodies)])
+        date = request.url.path.rsplit("/", 1)[-1]
+        if date in bodies:
+            return httpx.Response(200, json=bodies[date])
+        return httpx.Response(404, json={})
+
+    return httpx.MockTransport(handler)
+
+
+def test_recent_image_hashes_collects_hashes_from_card_media() -> None:
+    url = "https://cdn/a.png"
+    bodies = {"2026-08-07": {"cards": [_image_card(url)]}}
+
+    with httpx.Client(transport=_image_editions_handler(bodies, {url: solid_png(200)})) as client:
+        digests = collect_daily.recent_image_hashes(
+            client, "http://api", datetime.date(2026, 8, 8), days=3, cache={}
+        )
+
+    assert digests == [collect_daily.average_hash(solid_png(200))]
+
+
+def test_recent_image_hashes_skips_youtube_thumbnails() -> None:
+    """영상은 id 로 이미 중복배제된다 — 썸네일까지 이미지 풀에 넣지 않는다."""
+    url = "https://i.ytimg.com/vi/abc123/hqdefault.jpg"
+    bodies = {"2026-08-07": {"cards": [_image_card(url)]}}
+
+    with httpx.Client(transport=_image_editions_handler(bodies, {url: solid_png(200)})) as client:
+        digests = collect_daily.recent_image_hashes(
+            client, "http://api", datetime.date(2026, 8, 8), days=3, cache={}
+        )
+
+    assert digests == []
+
+
+def test_recent_image_hashes_skips_cards_without_media() -> None:
+    bodies = {"2026-08-07": {"cards": [_image_card(None)]}}
+
+    with httpx.Client(transport=_image_editions_handler(bodies, {})) as client:
+        digests = collect_daily.recent_image_hashes(
+            client, "http://api", datetime.date(2026, 8, 8), days=3, cache={}
+        )
+
+    assert digests == []
+
+
+def test_recent_image_hashes_populates_the_cache_for_reuse() -> None:
+    url = "https://cdn/a.png"
+    bodies = {"2026-08-07": {"cards": [_image_card(url)]}}
+    cache: dict[str, int] = {}
+
+    with httpx.Client(transport=_image_editions_handler(bodies, {url: solid_png(200)})) as client:
+        collect_daily.recent_image_hashes(
+            client, "http://api", datetime.date(2026, 8, 8), days=3, cache=cache
+        )
+
+    assert cache == {url: collect_daily.average_hash(solid_png(200))}
+
+
+def test_recent_image_hashes_returns_empty_when_history_is_unreachable(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """발행 이력을 못 읽어도 수집을 막지 않는다 — recent_video_ids 와 같은 원칙."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        digests = collect_daily.recent_image_hashes(
+            client, "http://api", datetime.date(2026, 8, 8), days=3, cache={}
+        )
+
+    assert digests == []
+    assert capsys.readouterr().err != ""
