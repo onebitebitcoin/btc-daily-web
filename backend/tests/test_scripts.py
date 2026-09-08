@@ -255,6 +255,102 @@ def test_classify_relevance_matches_ascii_terms_on_word_boundaries() -> None:
     assert collect_daily.classify_relevance(news) == "btc"
 
 
+def test_classify_relevance_marks_crypto_tax_articles_as_policy() -> None:
+    """가상자산 세제·규제 기사가 other 로 밀려나면 카드에 못 간다.
+
+    실제 사고: 2026-09-09 코퍼스의 "국회예산정책처 원화 스테이블코인 준비자산
+    규제는 필요"가 제목의 '스테이블코인' 때문에 알트로 잡혀 other 였다.
+    """
+    news = make_news(title="가상자산 과세 4달 남았는데 세부 기준 없어…유예론 재점화")
+
+    assert collect_daily.classify_relevance(news) == "policy"
+
+
+def test_classify_relevance_marks_stablecoin_regulation_as_policy() -> None:
+    news = make_news(
+        title="국회예산정책처 원화 스테이블코인 준비자산 규제는 필요",
+        tags="['#스테이블코인', '#가상자산', '#국회']",
+    )
+
+    assert collect_daily.classify_relevance(news) == "policy"
+
+
+def test_classify_relevance_keeps_altcoin_business_news_out_of_policy() -> None:
+    """알트 소식은 제목에 정책 용어가 없으면 policy 가 아니다 — 등급의 존재 이유다."""
+    news = make_news(
+        title="비자, 스테이블코인 카드 3배 폭증…온체인 신용공여 사업 확산",
+        tags="['#비자', '#스테이블코인', '#결제']",
+    )
+
+    assert collect_daily.classify_relevance(news) == "other"
+
+
+def test_classify_relevance_requires_a_crypto_term_in_the_title_for_policy() -> None:
+    """정책 용어만으로는 안 된다 — tags 의 'bitcoin' 을 믿으면 무관한 기사가 샌다.
+
+    실제 오탐: 대학 스포츠 기사 "SEC Schedules Vote About Whether to Expel LSU"
+    가 'sec' 매칭으로 policy 에 올라왔다.
+    """
+    news = make_news(
+        title="SEC Schedules Vote About Whether to Expel LSU, Amends Lawsuit",
+        tags="['bitcoin']",
+    )
+
+    assert collect_daily.classify_relevance(news) != "policy"
+
+
+def test_classify_relevance_prefers_btc_over_policy() -> None:
+    """비트코인 규제 기사는 policy 가 아니라 btc 로 남아야 후보 상단을 지킨다."""
+    news = make_news(title="백악관 자문관, 비트코인 클래리티법 회의론 반박")
+
+    assert collect_daily.classify_relevance(news) == "btc"
+
+
+def test_filter_news_reserves_slots_for_policy_when_btc_would_fill_the_limit() -> None:
+    """btc 가 상한을 다 먹어도 정책 기사가 후보에 보여야 한다."""
+    btc = [
+        make_news(
+            source_ref=f"btc-{i}",
+            title="비트코인 시황",
+            url=f"btc-{i}",
+        )
+        for i in range(collect_daily.NEWS_LIMIT + 20)
+    ]
+    policy = [
+        make_news(
+            source_ref=f"pol-{i}",
+            title="가상자산 과세 유예안 국회 논의",
+            url=f"pol-{i}",
+        )
+        for i in range(5)
+    ]
+
+    result = collect_daily.filter_news(btc + policy, NOW)
+
+    assert len(result) == collect_daily.NEWS_LIMIT
+    assert [n["url"] for n in result if n["relevance"] == "policy"] == [
+        f"pol-{i}" for i in range(5)
+    ]
+
+
+def test_filter_news_runs_enrich_before_image_dedupe() -> None:
+    """og:image 로 새로 채운 그림도 중복 검사를 받아야 한다."""
+    seen: list[str | None] = []
+
+    def enrich(picked: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [{**n, "image_url": "https://cdn.example/og.jpg"} for n in picked]
+
+    def hash_image(url: str) -> int | None:
+        seen.append(url)
+        return 0
+
+    items = [make_news(title="비트코인 200일선 회복", url="a", image_url=None)]
+
+    collect_daily.filter_news(items, NOW, (), hash_image, (), enrich)
+
+    assert seen == ["https://cdn.example/og.jpg"]
+
+
 def test_filter_news_attaches_relevance_to_every_candidate() -> None:
     items = [make_news(title="비트코인 200일선 회복, 골든크로스 접근")]
 
@@ -358,33 +454,34 @@ def test_trending_article_urls_dedupes_and_stops_at_the_priority_cutoff() -> Non
     ]
 
 
-# ---- collect_daily.macro_topups / 매크로 예약 자리 ----
+# ---- collect_daily.broad_topups / 정책·매크로 예약 자리 ----
 
 
-def test_macro_topups_keeps_only_macro_tier() -> None:
+def test_broad_topups_keeps_only_policy_and_macro_tiers() -> None:
     """btc 등급은 일부러 버린다 — 이 피드의 tags:['bitcoin'] 은 못 믿는다."""
     items = [
         make_news(url="m", title="연준 금리 동결 시사"),
         make_news(url="b", title="LG 한화 12-3 제압", tags="['bitcoin']"),
         make_news(url="o", title="오픈AI 규제 입장 선회"),
+        make_news(url="p", title="가상자산 과세 2년 유예안 국회 통과"),
     ]
 
-    result = collect_daily.macro_topups(items, NOW)
+    result = collect_daily.broad_topups(items, NOW)
 
-    assert [n["url"] for n in result] == ["m"]
+    assert [n["url"] for n in result] == ["m", "p"]
 
 
-def test_macro_topups_skips_urls_already_in_the_base_feed() -> None:
+def test_broad_topups_skips_urls_already_in_the_base_feed() -> None:
     items = [make_news(url="dup", title="연준 금리 동결 시사")]
 
-    assert collect_daily.macro_topups(items, NOW, {"dup"}) == []
+    assert collect_daily.broad_topups(items, NOW, {"dup"}) == []
 
 
-def test_macro_topups_respects_the_news_window() -> None:
+def test_broad_topups_respects_the_news_window() -> None:
     stale = NOW - datetime.timedelta(hours=collect_daily.NEWS_WINDOW_HOURS + 1)
     items = [make_news(url="old", title="연준 금리 동결 시사", crawled_at=stale.isoformat())]
 
-    assert collect_daily.macro_topups(items, NOW) == []
+    assert collect_daily.broad_topups(items, NOW) == []
 
 
 def test_filter_news_reserves_slots_for_macro_when_btc_would_fill_the_limit() -> None:

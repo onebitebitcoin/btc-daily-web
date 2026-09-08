@@ -16,12 +16,14 @@ Usage: python scripts/collect_daily.py [--date YYYY-MM-DD] [--out PATH]
 
 import argparse
 import datetime
+import html
 import io
 import json
 import re
 import sys
 import urllib.parse
 from collections.abc import Callable, Collection
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -77,11 +79,18 @@ NEWS_BUCKETS = 4  # 창을 4등분해 시간대별로 고르게 뽑는다
 # 다 먹어(2026-08-24: 36h btc 등급 108건) 매크로가 한 건도 못 올라온다 — 카드가
 # 매크로를 쓸 수 있으려면 후보에 보이기부터 해야 한다.
 MACRO_RESERVE = 12
+# 정책 등급에 떼어두는 자리. MACRO_RESERVE 와 같은 취지다 — btc 등급이 상한을
+# 다 먹으면 세제·규제 기사가 후보에 아예 안 보인다.
+POLICY_RESERVE = 12
+# 등급별 예약량. filter_news 가 이 합을 btc 몫에서 떼어 뒷등급에 남긴다.
+TIER_RESERVES = {"policy": POLICY_RESERVE, "macro": MACRO_RESERVE}
 
 # 후보의 비트코인 관련도 등급. 앞에 올수록 먼저 후보 자리를 가져간다.
 # 카드는 비트코인 온리가 1순위이고, 물량이 모자라면 알트·크립토 일반 소재 대신
-# 매크로(달러·금리·연준·국채)로 채운다 — 2026-08-24 편집 방침.
-RELEVANCE_TIERS = ("btc", "macro", "other")
+# 정책(가상자산 세제·규제·입법)과 매크로(달러·금리·연준·국채)로 채운다.
+# 정책이 매크로보다 앞인 이유는 가상자산 과세·입법이 달러·금리보다 이 카드뉴스의
+# 주제에 가깝기 때문이다 — 2026-09-09 편집 방침.
+RELEVANCE_TIERS = ("btc", "policy", "macro", "other")
 
 # 관련도 판정 키워드. title 은 가중치 3, summary+tags 는 1로 센다(_relevance_score).
 # ASCII 항목은 단어 경계로, 한글 항목은 부분 문자열로 맞춘다.
@@ -198,6 +207,90 @@ MACRO_TERMS = (
     "엔화",
     "관세",
     "tariff",
+)
+# 가상자산 세제·규제 판정 키워드. classify_relevance 가 CRYPTO_DOMAIN_TERMS 와
+# 함께 **제목에서만** 본다 — 둘 다 제목에 있어야 policy 다. 본문·태그까지 보면
+# 소스가 기계적으로 붙인 tags:['bitcoin'] 때문에 무관한 기사가 샌다(2026-09-09
+# 실측: 대학 스포츠 기사 "SEC Schedules Vote About Whether to Expel LSU" 가
+# 'sec' 매칭으로 올라왔다).
+POLICY_TERMS = (
+    "과세",
+    "세금",
+    "세제",
+    "세율",
+    "국세",
+    "소득세",
+    "양도소득",
+    "비과세",
+    "상속세",
+    "tax",
+    "irs",
+    "금융위",
+    "금감원",
+    "특금법",
+    "자금세탁",
+    "트래블룰",
+    "aml",
+    "규제",
+    "입법",
+    "법안",
+    "개정안",
+    "시행령",
+    "가이드라인",
+    "제도화",
+    "국회",
+    "의회",
+    "상원",
+    "하원",
+    "congress",
+    "senate",
+    "sec",
+    "cftc",
+    "mica",
+    "클래리티",
+    "clarity act",
+    "legislation",
+    "regulation",
+    "regulatory",
+    "판결",
+    "소송",
+    "기소",
+    "압수",
+    "몰수",
+    "제재",
+    "sanction",
+    "lawsuit",
+    "ruling",
+    "라이선스",
+    "인가",
+    "감독",
+    "당국",
+    "백악관",
+    "white house",
+    "행정명령",
+    "executive order",
+)
+# 크립토 도메인 용어. 정책 기사가 "무엇에 대한 정책인가"를 가른다. ALT_TERMS 와
+# 일부러 겹친다 — 스테이블코인 과세처럼 알트 용어가 들어간 정책 기사를 살리는 게
+# 이 등급의 목적이다. 알트 시세·기술 기사는 제목에 POLICY_TERMS 가 없어서 걸러진다.
+CRYPTO_DOMAIN_TERMS = (
+    "가상자산",
+    "암호화폐",
+    "디지털자산",
+    "크립토",
+    "crypto",
+    "코인",
+    "거래소",
+    "블록체인",
+    "blockchain",
+    "스테이블코인",
+    "stablecoin",
+    "비트코인",
+    "bitcoin",
+    "btc",
+    "etf",
+    "토큰",
+    "token",
 )
 # 영상 후보 수. 5 는 실측상 너무 좁았다 — 2026-08-24 에 48h 안에서 요약까지
 # 끝난 비트코인 영상이 21건이었는데 상위 5건만 후보가 됐다.
@@ -321,6 +414,251 @@ def get_image_hash(client: httpx.Client, url: str, cache: dict[str, int]) -> int
     return digest
 
 
+# ---- 원문 URL 복원 · 대표 이미지 보강 ----
+#
+# my-news 의 가상자산 정책 소스(cryptopolicy)는 구글 뉴스 경유라 url 이
+# news.google.com 리디렉션이고 image_url 이 비어 있다. 그대로 두면 카드의 "원문"
+# 링크가 리디렉션 주소가 되고 이미지는 채울 방법이 없다. ai-daily-web 이 같은
+# 문제를 먼저 겪었고(2026-08-26 발행분 카드 4장이 매체 홈페이지 링크에 기본
+# 아트로 나갔다), 아래는 거기서 검증된 구현을 그대로 옮긴 것이다.
+#
+# 그래서 최종 후보에 한해 둘을 채운다.
+#   1. 구글 뉴스 리디렉션 -> 매체 원문 URL
+#   2. image_url 이 빈 후보 -> 원문 <head> 의 og:image
+# 둘 다 실패하면 원래 값을 그대로 남긴다. 있으면 좋은 보강이지 06:00 배치를
+# 죽일 이유가 아니다. 최종 후보(NEWS_LIMIT)에만 거는 건 원본 500건을 전부
+# 두드리면 느리고 낭비라서다 — 이미지 해시와 같은 이유다.
+
+GOOGLE_NEWS_ARTICLE = "https://news.google.com/rss/articles/"
+GOOGLE_NEWS_RPC = "https://news.google.com/_/DotsSplashUi/data/batchexecute"
+# 구글은 브라우저 UA 가 아니면 인터스티셜에 서명을 심어주지 않는다.
+BROWSER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
+SOURCE_FETCH_TIMEOUT = 12.0
+# 동시 요청 수. 5 면 이미지 없는 후보 59건이 실측 15초 안쪽이고 매체 한 곳에
+# 몰아치지도 않는다.
+SOURCE_ENRICH_WORKERS = 5
+# og:image 는 <head> 에 있다. 본문까지 읽을 이유가 없다.
+OG_HEAD_BYTES = 200_000
+# 수집 본체는 my-news/my-youtube 만 보므로 리디렉션을 안 따라가지만, 매체 원문은
+# 거의 항상 리디렉션을 탄다. 클라이언트를 따로 만들지 않고 요청 단위로 얹는다 —
+# 그래야 호출자가 넘긴 클라이언트를 그대로 쓴다(테스트가 MockTransport 로 가로챈다).
+_SOURCE_REQUEST: dict[str, Any] = {
+    "headers": {"User-Agent": BROWSER_UA},
+    "follow_redirects": True,
+    "timeout": SOURCE_FETCH_TIMEOUT,
+}
+SOURCE_URL_CACHE_PATH = BACKEND_ROOT / ".cache" / "source-url" / "cache.json"
+OG_IMAGE_CACHE_PATH = BACKEND_ROOT / ".cache" / "og-image" / "cache.json"
+
+_GNEWS_SIGNATURE = re.compile(r'data-n-a-sg="([^"]+)"')
+_GNEWS_TIMESTAMP = re.compile(r'data-n-a-ts="(\d+)"')
+_OG_IMAGE_TAG = re.compile(
+    r"""<meta[^>]+(?:property|name)=["'](?:og:image|twitter:image)(?::src)?["'][^>]*>""",
+    re.IGNORECASE,
+)
+_OG_CONTENT = re.compile(r"""content=["']([^"']+)["']""", re.IGNORECASE)
+
+
+def _load_str_cache(path: Path) -> dict[str, str]:
+    """url -> url 캐시. 없거나 손상됐으면 빈 캐시로 시작한다(치명적이지 않다)."""
+    if not path.exists():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        return {str(key): str(value) for key, value in raw.items()}
+    except (OSError, json.JSONDecodeError, ValueError, AttributeError):
+        return {}
+
+
+def _save_str_cache(path: Path, cache: dict[str, str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        path.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError as exc:
+        print(f"경고: 캐시 저장 실패 ({path.name}): {exc!r}", file=sys.stderr)
+
+
+def _cached(cache: dict[str, str], key: str, produce: Callable[[], str | None]) -> str | None:
+    """성공한 결과만 캐시에 남긴다 — 실패는 다음 실행에서 다시 시도되게."""
+    if key in cache:
+        return cache[key]
+    value = produce()
+    if value:
+        cache[key] = value
+    return value
+
+
+def resolve_google_news_url(client: httpx.Client, url: str) -> str | None:
+    """구글 뉴스 리디렉션 주소를 매체 원문 URL 로 되돌린다.
+
+    주소 안에 원문이 인코딩돼 있지 않다 — 예전 형식은 base64 였지만 지금은
+    아니다. 인터스티셜 HTML 에 심긴 서명(`data-n-a-sg`)과 타임스탬프를 구글
+    내부 RPC 에 되던져야 원문이 나온다. 구글이 이 흐름을 바꾸면 여기서 None 이
+    나오고 호출자는 원래 주소를 그대로 쓴다 — 링크가 리디렉션으로 남을 뿐
+    수집은 계속된다.
+    """
+    article_id = url.split("/articles/", 1)[-1].split("?", 1)[0]
+    if not article_id or article_id == url:
+        return None
+    try:
+        page = client.get(url, **_SOURCE_REQUEST)
+        page.raise_for_status()
+        signature = _GNEWS_SIGNATURE.search(page.text)
+        timestamp = _GNEWS_TIMESTAMP.search(page.text)
+        if not (signature and timestamp):
+            return None
+        request = [
+            "Fbv4je",
+            json.dumps(
+                [
+                    "garturlreq",
+                    [
+                        ["X", "X", ["X", "X"], None, None, 1, 1, "US:en", None, 1]
+                        + [None, None, None, None, None, 0, 1],
+                        "X",
+                        "X",
+                        1,
+                        [1, 1, 1],
+                        1,
+                        1,
+                        None,
+                        0,
+                        0,
+                        None,
+                        0,
+                    ],
+                    article_id,
+                    int(timestamp.group(1)),
+                    signature.group(1),
+                ]
+            ),
+        ]
+        response = client.post(
+            GOOGLE_NEWS_RPC,
+            data={"f.req": json.dumps([[request]])},
+            headers={
+                "User-Agent": BROWSER_UA,
+                "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+            },
+            timeout=SOURCE_FETCH_TIMEOUT,
+        )
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        print(f"경고: 구글 뉴스 원문 복원 실패, 건너뜀 ({exc!r})", file=sys.stderr)
+        return None
+    return _parse_garturlres(response.text)
+
+
+def _parse_garturlres(body: str) -> str | None:
+    """batchexecute 응답에서 원문 URL 을 꺼낸다.
+
+    응답은 `)]}'` 로 시작하는 줄 뒤에 JSON 이 이어지는 구글 특유의 형식이고,
+    원문 URL 은 그 안에 **문자열로 한 번 더 인코딩된** JSON 안에 들어 있다.
+    정규식으로 한 번에 긁으면 `=` 가 `\u003d` 로 이스케이프된 자리에서 잘린다
+    (실측: aitimes.com 주소가 `?idxno` 에서 끊겼다) — 그래서 두 겹 다 파싱한다.
+    """
+    for line in body.splitlines():
+        if "garturlres" not in line:
+            continue
+        try:
+            envelope = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        for row in envelope:
+            if isinstance(row, list) and len(row) > 2 and row[0] == "wrb.fr":
+                try:
+                    payload = json.loads(row[2])
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                if len(payload) > 1 and isinstance(payload[1], str):
+                    return payload[1]
+    return None
+
+
+def og_image_url(client: httpx.Client, url: str) -> str | None:
+    """기사 <head> 의 og:image(없으면 twitter:image)를 절대 URL 로 돌려준다.
+
+    이게 "기사 본문 실사진"에 가장 가까운 자동 수단이다 — 매체가 그 기사의
+    대표 이미지로 직접 지정한 것이라, 다른 기사 사진을 빌려 오는 사고가 없다.
+    """
+    try:
+        response = client.get(url, **_SOURCE_REQUEST)
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        print(f"경고: 원문 og:image 조회 실패, 건너뜀 ({url}): {exc!r}", file=sys.stderr)
+        return None
+    for tag in _OG_IMAGE_TAG.findall(response.text[:OG_HEAD_BYTES]):
+        found = _OG_CONTENT.search(tag)
+        if found and found.group(1).strip():
+            # 속성값은 HTML 이스케이프된 채로 들어온다 — `&amp;` 를 그대로 두면
+            # 쿼리스트링이 깨져 이미지 서버가 다른 것을 주거나 404 를 낸다.
+            raw = html.unescape(found.group(1).strip())
+            return urllib.parse.urljoin(str(response.url), raw)
+    return None
+
+
+def enrich_candidates(
+    items: list[dict[str, Any]],
+    resolve_url: Callable[[str], str | None],
+    fetch_image: Callable[[str], str | None],
+    workers: int = SOURCE_ENRICH_WORKERS,
+) -> list[dict[str, Any]]:
+    """후보의 url 을 매체 원문으로 되돌리고, 이미지가 빈 후보에 og:image 를 채운다.
+
+    되돌린 주소는 `url` 에 넣고 원래 리디렉션 주소는 `google_url` 로 남긴다.
+    items 와 그 안의 dict 를 변형하지 않는다.
+    """
+    redirects = sum(1 for n in items if str(n.get("url") or "").startswith(GOOGLE_NEWS_ARTICLE))
+    missing = sum(1 for n in items if not n.get("image_url"))
+
+    def enrich(news: dict[str, Any]) -> dict[str, Any]:
+        url = str(news.get("url") or "")
+        patch: dict[str, Any] = {}
+        if url.startswith(GOOGLE_NEWS_ARTICLE):
+            resolved = resolve_url(url)
+            if resolved:
+                patch["url"] = resolved
+                patch["google_url"] = url
+                url = resolved
+        if url and not news.get("image_url"):
+            image = fetch_image(url)
+            if image:
+                patch["image_url"] = image
+        return {**news, **patch} if patch else news
+
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        enriched = list(pool.map(enrich, items))
+
+    restored = sum(1 for n in enriched if n.get("google_url"))
+    filled = sum(
+        1
+        for before, after in zip(items, enriched, strict=True)
+        if not before.get("image_url") and after.get("image_url")
+    )
+    print(
+        f"source enrich: 리디렉션 {redirects}건 중 {restored}건 복원 · "
+        f"이미지 없던 {missing}건 중 {filled}건 보강"
+    )
+    return enriched
+
+
+def enrich_with_network(
+    items: list[dict[str, Any]],
+    client: httpx.Client,
+    url_cache: dict[str, str],
+    image_cache: dict[str, str],
+) -> list[dict[str, Any]]:
+    """enrich_candidates 를 실제 네트워크와 디스크 캐시에 묶는다."""
+    return enrich_candidates(
+        items,
+        lambda url: _cached(url_cache, url, lambda: resolve_google_news_url(client, url)),
+        lambda url: _cached(image_cache, url, lambda: og_image_url(client, url)),
+    )
+
+
 # 화제성 우선권을 줄 트렌딩 토픽 수. rank_topics 는 상위 15개를 내는데, 그 꼬리는
 # 매체 한 곳이 한 번 언급한 수준이라 "여러 매체가 동시에 다뤘다"는 신호가 약하다.
 TRENDING_PRIORITY_TOPICS = 8
@@ -357,6 +695,17 @@ def _relevance_score(news: dict[str, Any], terms: tuple[str, ...]) -> int:
     return 3 * _term_hits(title, terms) + _term_hits(rest, terms)
 
 
+def _title_hits(news: dict[str, Any], terms: tuple[str, ...]) -> int:
+    """제목에만 걸린 terms 의 종류 수. 본문·태그는 안 본다.
+
+    policy 판정 전용이다. _relevance_score 는 제목에 가중치 3 을 주긴 하지만
+    본문·태그만으로도 점수가 나므로, 소스가 기사 내용과 무관하게 붙인 태그
+    (tags: ['bitcoin'])로 등급이 뒤집힌다. 정책 등급은 오탐 비용이 커서
+    (카드 10장 중 한 자리를 무관한 기사에 내준다) 제목만 본다.
+    """
+    return _term_hits(str(news.get("title") or "").lower(), terms)
+
+
 def classify_relevance(news: dict[str, Any]) -> str:
     """기사를 RELEVANCE_TIERS 중 하나로 분류한다 — "btc" / "macro" / "other".
 
@@ -370,11 +719,25 @@ def classify_relevance(news: dict[str, Any]) -> str:
     2026-08-24 코퍼스 108건 실측: btc 71 / macro 3 / other 34 로 갈렸고, other 에는
     스택스·잭엑스비티·XRP 시황·이더리움·스테이블코인처럼 그날 카드에서 빼고 싶었던
     소재가 모여 있었다.
+
+    policy 는 그 other 안에 섞여 있던 **가상자산 세제·규제·입법** 기사를 건져내려고
+    2026-09-09 에 넣었다. 제목에 알트·스테이블코인 용어가 들어갔다는 이유만으로
+    국내 정책 보도가 통째로 other 로 밀려나 카드에 못 갔다(실측: "국회예산정책처
+    원화 스테이블코인 준비자산 규제는 필요", "최대 5조1500억원 절감…원화
+    스테이블코인 준비자산 규제 제언"). 판정은 **정책 용어와 크립토 용어가 둘 다
+    제목에 있을 것**을 요구한다 — 알트코인 시세·기술·프로젝트 소식은 제목에 정책
+    용어가 없어서 그대로 other 에 남는다(실측으로 비자 스테이블코인 카드, 로빈후드
+    예측시장, 비트마인 이더리움 매입이 other 를 유지했다).
+
+    btc 를 policy 보다 먼저 보는 것도 의도한 것이다 — 비트코인 규제 기사는 policy
+    가 아니라 btc 로 남아야 후보 상단을 지킨다.
     """
     btc = _relevance_score(news, BTC_TERMS)
     alt = _relevance_score(news, ALT_TERMS)
     if btc and btc >= alt:
         return "btc"
+    if _title_hits(news, POLICY_TERMS) and _title_hits(news, CRYPTO_DOMAIN_TERMS):
+        return "policy"
     if _relevance_score(news, MACRO_TERMS) >= max(alt, 1):
         return "macro"
     return "other"
@@ -420,17 +783,25 @@ def _round_robin_by_bucket(
     return picked
 
 
-def macro_topups(
+# 무필터 피드에서 주워올 등급. btc 는 일부러 뺀다(broad_topups docstring 참고).
+BROAD_TOPUP_TIERS = ("policy", "macro")
+
+
+def broad_topups(
     items: list[dict[str, Any]],
     now: datetime.datetime,
     exclude_urls: Collection[str] = (),
 ) -> list[dict[str, Any]]:
-    """asset 필터 없는 피드에서 **macro 등급만** 골라낸다 — 매크로 보강 풀.
+    """asset 필터 없는 피드에서 **BROAD_TOPUP_TIERS 등급만** 골라낸다 — 보강 풀.
 
     btc 등급은 일부러 버린다. 이 피드는 AI·일반 뉴스가 대부분이고 그중 일부에
     내용과 무관한 `tags: ['bitcoin']` 이 붙어 있어(2026-08-24 실측: KBO 야구 기사
     3건이 그렇게 btc 로 분류됐다) 그대로 받으면 후보 상단이 오염된다. 비트코인
     기사는 my-news 가 이미 asset=btc 로 걸러 주므로 여기서 또 주울 이유도 없다.
+
+    policy 를 함께 받는 이유는, 가상자산 세제·규제 기사가 태그에 코인 이름을 안
+    달아 asset 판정에서 새는 경우가 있어서다. policy 판정은 제목에 정책 용어와
+    크립토 용어를 둘 다 요구하므로 야구 기사가 새던 경로로는 안 들어온다.
 
     exclude_urls 는 기본 피드에서 이미 받은 url 이다 — 두 피드가 겹치는 만큼
     중복으로 들어오는 걸 막는다.
@@ -445,7 +816,7 @@ def macro_topups(
         crawled = news.get("crawled_at")
         if not crawled or _parse_dt(crawled) < cutoff:
             continue
-        if classify_relevance(news) != "macro":
+        if classify_relevance(news) not in BROAD_TOPUP_TIERS:
             continue
         seen.add(url)
         picked.append(news)
@@ -458,16 +829,17 @@ def filter_news(
     exclude_image_hashes: Collection[int] = (),
     hash_image: Callable[[str], int | None] | None = None,
     priority_urls: Collection[str] = (),
+    enrich: Callable[[list[dict[str, Any]]], list[dict[str, Any]]] | None = None,
 ) -> list[dict[str, Any]]:
     """NEWS_WINDOW_HOURS 창을 통과한 기사를 관련도 순으로, 시간대별로 고르게 뽑는다.
 
     두 축이 겹쳐 있다.
 
     **관련도(바깥 축).** RELEVANCE_TIERS 순서대로 btc 를 먼저 채우고, 남으면
-    macro, 그래도 남으면 other 로 채운다. 카드가 비트코인 온리를 1순위로 두고
-    물량이 모자랄 때 알트 대신 매크로를 쓰기 때문이다. 다만 btc 만으로 상한이
-    차버리면 매크로가 후보에 아예 안 보이므로, macro 후보가 있는 만큼
-    MACRO_RESERVE 자리까지는 btc 몫에서 떼어 남겨둔다. 2026-08-24 진단: 코퍼스
+    policy, macro, 그래도 남으면 other 로 채운다. 카드가 비트코인 온리를 1순위로
+    두고 물량이 모자랄 때 알트 대신 정책·매크로를 쓰기 때문이다. 다만 btc 만으로
+    상한이 차버리면 뒷등급이 후보에 아예 안 보이므로, 각 등급 후보가 있는 만큼
+    TIER_RESERVES 자리까지는 btc 몫에서 떼어 남겨둔다. 2026-08-24 진단: 코퍼스
     108건 중 20건만 후보가 됐는데 관련도 정렬이 없어, 그날 트렌딩 1위였던 CFTC
     비트코인 무기한선물 승인은 빠지고 이더리움 시세·지캐시 기사는 들어왔다.
 
@@ -492,6 +864,11 @@ def filter_news(
     적용한다 — 원본 최대 500건을 전부 내려받으면 느리고 낭비다. hash_image 를
     안 넘기면(기본값) 이미지 중복배제를 건너뛴다 — 예전과 동일하게 동작한다.
 
+    enrich 를 넘기면 최종 선정된 후보에만 적용한다(보통 enrich_with_network) —
+    구글 뉴스 리디렉션을 매체 원문으로 되돌리고 빈 이미지를 og:image 로 채운다.
+    이미지 중복배제보다 먼저 돌아가므로 새로 채운 이미지도 검사를 받는다.
+    안 넘기면(기본값) 보강을 건너뛴다.
+
     items 와 그 안의 dict 를 변형하지 않는다(relevance 가 붙은 항목도, 이미지가
     떨어져 나간 항목도 새 dict 로 돌려준다).
     """
@@ -503,8 +880,8 @@ def filter_news(
     ]
 
     by_tier = {tier: [n for n in fresh if n["relevance"] == tier] for tier in RELEVANCE_TIERS}
-    # btc 가 상한을 다 먹지 않도록, 실제로 있는 만큼만 매크로 자리를 떼어둔다.
-    reserved = min(MACRO_RESERVE, len(by_tier["macro"]))
+    # btc 가 상한을 다 먹지 않도록, 실제로 있는 만큼만 뒷등급 자리를 떼어둔다.
+    reserved = sum(min(quota, len(by_tier[tier])) for tier, quota in TIER_RESERVES.items())
 
     picked: list[dict[str, Any]] = []
     for tier in RELEVANCE_TIERS:
@@ -526,6 +903,11 @@ def filter_news(
             -_parse_dt(n["crawled_at"]).timestamp(),
         )
     )
+
+    # enrich 를 이미지 중복배제보다 먼저 돌린다 — og:image 로 새로 채운 이미지도
+    # 중복 검사를 받아야 한다. 순서가 반대면 보강된 그림이 검사를 건너뛴다.
+    if enrich is not None:
+        picked = enrich(picked)
 
     if hash_image is not None:
         picked = _dedupe_image_urls(picked, exclude_image_hashes, hash_image)
@@ -941,6 +1323,8 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None) -> P
         used_quote_ids = recent_quote_ids(client, args.edition_api, date, len(quote_pool))
         used_video_ids = recent_video_ids(client, args.edition_api, date, RECENT_VIDEO_DAYS)
         image_hash_cache = _load_image_hash_cache()
+        source_url_cache = _load_str_cache(SOURCE_URL_CACHE_PATH)
+        og_image_cache = _load_str_cache(OG_IMAGE_CACHE_PATH)
         used_image_hashes = recent_image_hashes(
             client, args.edition_api, date, RECENT_IMAGE_DAYS, image_hash_cache
         )
@@ -953,24 +1337,29 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None) -> P
         hot_urls = trending_article_urls(trending_candidates)
         # 후보 이미지 해시도 같은 클라이언트·캐시로 계산한다. filter_news 는 URL 만
         # 넘기므로 클로저로 묶어 둔다.
-        # 매크로 보강. 실패해도 수집을 막지 않는다 — 있으면 좋은 것이지, 피드 하나
-        # 때문에 06:00 배치가 죽으면 손해가 훨씬 크다.
+        # 정책·매크로 보강. 실패해도 수집을 막지 않는다 — 있으면 좋은 것이지, 피드
+        # 하나 때문에 06:00 배치가 죽으면 손해가 훨씬 크다.
         try:
-            macro_raw = fetch_json(client, args.macro_news_url, "my-news(macro)")
+            macro_raw = fetch_json(client, args.macro_news_url, "my-news(broad)")
         except (httpx.HTTPError, SystemExit) as exc:
-            print(f"경고: 매크로 보강 피드를 못 읽어 건너뛴다 ({exc!r})", file=sys.stderr)
+            print(f"경고: 정책·매크로 보강 피드를 못 읽어 건너뛴다 ({exc!r})", file=sys.stderr)
             macro_raw = []
-        macro_extra = macro_topups(
+        broad_extra = broad_topups(
             macro_raw, window_end_utc, {n.get("url") for n in news_raw if n.get("url")}
         )
         news = filter_news(
-            news_raw + macro_extra,
+            news_raw + broad_extra,
             window_end_utc,
             used_image_hashes,
             lambda url: get_image_hash(client, url, image_hash_cache),
             hot_urls,
+            lambda picked: enrich_with_network(
+                picked, client, source_url_cache, og_image_cache
+            ),
         )
         _save_image_hash_cache(image_hash_cache)
+        _save_str_cache(SOURCE_URL_CACHE_PATH, source_url_cache)
+        _save_str_cache(OG_IMAGE_CACHE_PATH, og_image_cache)
     finally:
         if owns_client:
             client.close()
