@@ -1824,3 +1824,85 @@ def test_recent_image_hashes_returns_empty_when_history_is_unreachable(
 
     assert digests == []
     assert capsys.readouterr().err != ""
+
+
+# ---- collect_daily.classify_domestic / 국내 우선순위 ----
+
+
+def test_classify_domestic_matches_korean_market_terms() -> None:
+    assert collect_daily.classify_domestic({"title": "업비트 비트코인 거래량 급증"})
+    assert collect_daily.classify_domestic({"title": "금융위, 가상자산 2단계 입법 예고"})
+    assert collect_daily.classify_domestic({"title": "韓은 '제자리'…스테이블코인 입법 지연"})
+
+
+def test_classify_domestic_ignores_exchange_flow_stories() -> None:
+    """"거래소"는 해외 온체인 기사에 걸린다 — 지표어에서 뺐다(2026-09-10 실측)."""
+    assert not collect_daily.classify_domestic({"title": "비트코인 7일 평균 거래소 유입 4678BTC"})
+    assert not collect_daily.classify_domestic({"title": "미 정부 셧다운, 당국 대응 주목"})
+
+
+def test_classify_domestic_reads_only_the_title() -> None:
+    """태그·요약까지 보면 소스가 붙인 무관한 태그로 오탐이 난다(policy 등급에서 겪었다)."""
+    item = {
+        "title": "Bitcoin ETF inflows hit record",
+        "summary": "한국 투자자도",
+        "tags": ["#업비트"],
+    }
+
+    assert not collect_daily.classify_domestic(item)
+
+
+def test_filter_news_puts_domestic_first_within_a_tier() -> None:
+    items = [
+        make_news(
+            url="https://n/1",
+            title="비트코인 8만달러 회복",
+            crawled_at="2026-07-31T05:00:00+00:00",
+        ),
+        make_news(
+            url="https://n/2",
+            title="업비트 비트코인 거래량 급증",
+            crawled_at="2026-07-31T01:00:00+00:00",
+        ),
+    ]
+
+    result = collect_daily.filter_news(items, NOW)
+
+    assert [n["url"] for n in result] == ["https://n/2", "https://n/1"]
+    assert [n["domestic"] for n in result] == [True, False]
+
+
+def test_filter_news_does_not_let_domestic_cross_tier_boundaries() -> None:
+    """비트코인 온리가 1순위다 — 국내 정책 기사가 비트코인 기사를 앞지르면 안 된다."""
+    items = [
+        make_news(url="https://n/btc", title="비트코인 채굴 해시레이트 반등"),
+        make_news(url="https://n/kr", title="금융위, 가상자산 과세 법안 발표"),
+    ]
+
+    result = collect_daily.filter_news(items, NOW)
+
+    assert result[0]["url"] == "https://n/btc"
+    assert result[0]["relevance"] == "btc"
+    assert result[1]["domestic"] is True
+
+
+def test_filter_news_reserves_room_for_domestic_articles() -> None:
+    """btc 등급이 상한을 다 먹어도 국내 기사가 후보에 남아야 한다."""
+    flood = [
+        make_news(url=f"https://n/btc/{i}", title=f"비트코인 시황 {i}")
+        for i in range(collect_daily.NEWS_LIMIT + 50)
+    ]
+    domestic = [make_news(url="https://n/kr", title="빗썸 원화 입금 재개")]
+
+    result = collect_daily.filter_news(flood + domestic, NOW)
+
+    assert "https://n/kr" in {n["url"] for n in result}
+
+
+def test_filter_news_does_not_duplicate_a_reserved_domestic_article() -> None:
+    """국내 자리로 먼저 집은 기사가 등급 차례에서 또 들어오면 안 된다."""
+    items = [make_news(url="https://n/kr", title="업비트 비트코인 거래량 급증")]
+
+    result = collect_daily.filter_news(items, NOW)
+
+    assert len(result) == 1

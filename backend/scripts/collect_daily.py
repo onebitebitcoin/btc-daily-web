@@ -296,6 +296,39 @@ CRYPTO_DOMAIN_TERMS = (
     "토큰",
     "token",
 )
+# 국내 기사 판별 지표어. **등급(RELEVANCE_TIERS)과 직교하는 축이다** — "업비트
+# 비트코인 거래량"은 btc 등급이면서 국내 기사다. 등급을 하나 더 만들어 옮기면
+# 비트코인 온리 순서가 오히려 꼬인다.
+#
+# 오탐 검사를 거쳐 좁게 잡았다(2026-09-10, 36h 코퍼스 260건 실측).
+# - "거래소" 제외: "비트코인 7일 평균 거래소 유입"처럼 해외 온체인 기사에 걸린다
+# - "정부"·"당국" 제외: 해외 기사 번역에 흔하다
+# - "의회" 제외: 미국 의회 기사에 걸린다
+DOMESTIC_TERMS = (
+    "한국",
+    "韓",
+    "국내",
+    "원화",
+    "김치프리미엄",
+    "업비트",
+    "빗썸",
+    "코인원",
+    "코빗",
+    "금융위",
+    "금감원",
+    "기재부",
+    "국세청",
+    "특금법",
+    "가상자산이용자보호",
+    "국회",
+    "한국은행",
+    "코스피",
+)
+# 국내 기사에 떼어두는 후보 자리. TIER_RESERVES 와 같은 취지지만 등급 축과
+# 직교하므로 따로 계산한다 — 국내 기사는 등급이 무엇이든 후보에 보이기부터 해야
+# 카드 선별에서 검토된다.
+DOMESTIC_RESERVE = 8
+
 # 영상 후보 수. 5 는 실측상 너무 좁았다 — 2026-08-24 에 48h 안에서 요약까지
 # 끝난 비트코인 영상이 21건이었는데 상위 5건만 후보가 됐다.
 VIDEO_LIMIT = 15
@@ -747,6 +780,24 @@ def classify_relevance(news: dict[str, Any]) -> str:
     return "other"
 
 
+def _dedupe_key(news: dict[str, Any]) -> tuple[Any, Any]:
+    """후보 하나를 가리키는 키. url 이 비어 있는 항목이 있어 id 를 같이 쓴다."""
+    return (news.get("url"), news.get("id"))
+
+
+def classify_domestic(news: dict[str, Any]) -> bool:
+    """국내 기사인가. **제목만** 본다.
+
+    `_title_hits` 와 같은 이유로 제목만 본다 — 태그·요약까지 보면 소스가 기사
+    내용과 무관하게 붙인 태그로 오탐이 난다(policy 등급에서 이미 겪었다).
+
+    매체 국적이 아니라 기사 내용 기준이다. 토큰포스트·블록미디어는 한국 매체지만
+    실제로 내보내는 기사 대부분이 해외 시황 번역이라(2026-09-10: 후보 51건 중 국내
+    취재물 0건), 매체로 판정하면 해외 기사가 통째로 국내로 분류된다.
+    """
+    return _title_hits(news, DOMESTIC_TERMS) > 0
+
+
 def _round_robin_by_bucket(
     items: list[dict[str, Any]],
     now: datetime.datetime,
@@ -755,7 +806,9 @@ def _round_robin_by_bucket(
 ) -> list[dict[str, Any]]:
     """창을 NEWS_BUCKETS 구간으로 나눠 구간별 라운드로빈으로 limit 건 뽑는다.
 
-    구간 안에서는 priority_urls 에 든 기사를 먼저, 그 다음 최신순으로 정렬한다.
+    구간 안에서는 국내 기사를 먼저, 그 다음 priority_urls 에 든 기사를, 그 다음
+    최신순으로 정렬한다. 국내가 화제성보다 앞인 건 물량 차이 때문이다 — 국내
+    기사는 하루 5건 안팎이라(2026-09-10 실측) 화제성 큰 사건을 밀어내는 폭이 작다.
     """
     if limit <= 0:
         return []
@@ -770,6 +823,7 @@ def _round_robin_by_bucket(
     for bucket in buckets:
         bucket.sort(
             key=lambda n: (
+                not n.get("domestic"),
                 n.get("url") not in priority,
                 -_parse_dt(n["crawled_at"]).timestamp(),
             )
@@ -852,13 +906,19 @@ def filter_news(
     (=미국 장중)에 기사가 몰리면 그 시간대가 상위를 독차지해, 카드 후보가 하루
     24시간 중 평균 27%(최악 9%)밖에 못 덮었다(2026-08-18 진단).
 
+    **국내(등급과 직교하는 축).** 국내 기사는 등급 안에서 먼저 오고, DOMESTIC_RESERVE
+    만큼은 등급별 몫과 별개로 자리를 확보한다. 판정은 `classify_domestic` — 매체
+    국적이 아니라 제목 내용 기준이다. 2026-09-10 진단: 36h 코퍼스 260건 중 국내
+    기사가 5건뿐인데 그마저 policy 등급이라 btc 기사 뒤에 묻혔고, 그날 발행분에
+    국내 소식이 한 건도 못 들어갔다.
+
     **화제성(구간 안 정렬).** priority_urls 는 보통 rank_topics 상위 토픽에 걸린
     기사들의 url 이다. 구간 안에서 이들을 최신순보다 앞에 둔다 — 등급이 같아도
     여러 매체가 동시에 다룬 사건이 먼저 후보 자리를 가져가야 지엽적인 단발 기사에
     밀리지 않는다. 2026-08-24 에는 btc 등급만 71건이라 40 컷에서 그날 트렌딩 1위
     (CFTC 비트코인 무기한선물 승인)가 잘려나갔다. 안 넘기면 예전처럼 최신순이다.
 
-    돌려주는 각 항목에는 `relevance` 키가 붙는다(카드 10장을 고를 때 쓴다).
+    돌려주는 각 항목에는 `relevance` 와 `domestic` 키가 붙는다(카드 10장을 고를 때 쓴다).
 
     exclude_image_hashes(recent_image_hashes)와 hash_image(url -> average hash,
     보통 get_image_hash 를 클라이언트/캐시에 바인딩한 클로저)가 둘 다 주어지면,
@@ -878,16 +938,26 @@ def filter_news(
     """
     cutoff = now - datetime.timedelta(hours=NEWS_WINDOW_HOURS)
     fresh = [
-        {**n, "relevance": classify_relevance(n)}
+        {**n, "relevance": classify_relevance(n), "domestic": classify_domestic(n)}
         for n in items
         if not n.get("is_duplicate") and _parse_dt(n["crawled_at"]) >= cutoff
     ]
 
-    by_tier = {tier: [n for n in fresh if n["relevance"] == tier] for tier in RELEVANCE_TIERS}
+    # 국내 기사부터 DOMESTIC_RESERVE 만큼 확보한다. 등급 축과 직교하므로 등급별
+    # 몫에서 떼는 게 아니라 아예 먼저 집는다 — 국내 기사는 등급이 무엇이든 후보에
+    # 보이기부터 해야 카드 선별에서 검토된다.
+    picked: list[dict[str, Any]] = _round_robin_by_bucket(
+        [n for n in fresh if n["domestic"]], now, DOMESTIC_RESERVE, priority_urls
+    )
+    taken = {_dedupe_key(n) for n in picked}
+
+    by_tier = {
+        tier: [n for n in fresh if n["relevance"] == tier and _dedupe_key(n) not in taken]
+        for tier in RELEVANCE_TIERS
+    }
     # btc 가 상한을 다 먹지 않도록, 실제로 있는 만큼만 뒷등급 자리를 떼어둔다.
     reserved = sum(min(quota, len(by_tier[tier])) for tier, quota in TIER_RESERVES.items())
 
-    picked: list[dict[str, Any]] = []
     for tier in RELEVANCE_TIERS:
         room = NEWS_LIMIT - len(picked)
         if tier == "btc":
@@ -903,6 +973,7 @@ def filter_news(
     picked.sort(
         key=lambda n: (
             RELEVANCE_TIERS.index(n["relevance"]),
+            not n.get("domestic"),
             n.get("url") not in priority,
             -_parse_dt(n["crawled_at"]).timestamp(),
         )
@@ -1490,6 +1561,16 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None) -> P
         f"news candidates: {len(news)} — "
         + " / ".join(f"{tier} {count}" for tier, count in tier_counts.items())
     )
+    # 국내 기사는 등급 안에서 맨 앞으로 오지만, policy 등급 자체가 후보 80번대에서
+    # 시작하는 날이 있어 위에서부터 읽으면 못 보고 지나친다. 제목까지 찍어서 카드를
+    # 고르는 쪽이 draft 를 안 뒤져도 무엇이 있었는지 알게 한다.
+    domestic = [n for n in news if n.get("domestic")]
+    if domestic:
+        print(f"domestic candidates: {len(domestic)}")
+        for n in domestic:
+            print(f"  [{n.get('relevance')}] {n.get('source_ref')} — {n.get('title')}")
+    else:
+        print("domestic candidates: 0 — 창 안에 국내 기사가 없었다")
     print(
         f"video candidates: {len(videos)} — 최근 {RECENT_VIDEO_DAYS}일 발행분 "
         f"{len(used_video_ids)}건 제외"
