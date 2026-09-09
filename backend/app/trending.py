@@ -13,6 +13,7 @@ log로 눌러 죽인다(volume). 자세한 배점 근거는 rank_topics 본문 �
 import datetime
 import math
 import re
+from collections.abc import Collection
 from typing import Any, TypedDict
 from zoneinfo import ZoneInfo
 
@@ -63,6 +64,18 @@ SYNONYMS: dict[str, str] = {
 # 후보 15개를 넘겨 Claude가 겹치는 것끼리 묶어 10개로 정리할 여유를 준다.
 TOP_N = 15
 
+# 영상 제목을 대조할 때 기준으로 삼을 토픽 수. 뉴스·X 태그를 다 모으면 토픽이
+# 679개까지 늘어나고(2026-09-10 실측) 거기엔 "금"·"미팅" 같은 한 번 스친 말이
+# 섞여 있어서, 전체를 기준으로 대조하면 영상 하나가 토픽 7개에 걸린다. 어차피
+# 결과는 상위 TOP_N 이므로 그 언저리까지만 기준으로 둔다 — 영상이 붙어서 15위
+# 안으로 올라올 토픽을 담을 만큼은 넉넉해야 해서 TOP_N 보다 크게 잡는다.
+TITLE_MATCH_POOL = 40
+
+# 제목 대조에 쓸 토픽의 최소 길이. 한 글자 토픽은 다른 말 안에 그대로 들어간다
+# ("금"이 "금리"에, "달"이 "달러"에). ASCII 는 단어 경계로 맞추므로 이 제한이
+# 필요 없지만, 한글은 부분 문자열이라 걸러야 한다.
+MIN_TITLE_MATCH_LEN = 2
+
 _HASHTAG_RE = re.compile(r"#(\S+)")
 
 
@@ -110,6 +123,53 @@ def _normalize_tag(raw: str) -> str | None:
 
 def _extract_hashtags(text: str) -> list[str]:
     return _HASHTAG_RE.findall(text or "")
+
+
+def _topic_aliases(topic: str) -> set[str]:
+    """토픽 하나를 제목에서 찾을 때 쓸 표기들. 정규 이름 + SYNONYMS 의 역방향.
+
+    "연준" 토픽은 제목에 "FOMC"나 "Fed"로 적히는 쪽이 오히려 흔하다. 정규 이름만
+    대조하면 그런 영상이 통째로 빠진다.
+    """
+    aliases = {topic}
+    for raw, canonical in SYNONYMS.items():
+        if canonical == topic:
+            aliases.add(raw)
+    return aliases
+
+
+def _mentions_term(text: str, term: str) -> bool:
+    """text 안에 term 이 등장하는가.
+
+    ASCII 는 단어 경계로, 한글은 부분 문자열로 맞춘다 — `collect_daily._term_hits`
+    와 같은 규칙이다. 이 구분이 없으면 "AI"가 "Ukraine"이나 "again"에 걸린다
+    (2026-09-08 영상 코퍼스 실측).
+    """
+    low = text.lower()
+    t = term.lower()
+    if t.isascii():
+        return re.search(rf"(?<![a-z0-9]){re.escape(t)}(?![a-z0-9])", low) is not None
+    return t in low
+
+
+def _title_topics(title: str, known_topics: Collection[str]) -> set[str]:
+    """영상 제목에서 이미 집계된 토픽을 찾는다. **제목만** 본다.
+
+    요약까지 보면 매칭률은 3/13 에서 11/13 으로 오르지만 오탐이 심하다 —
+    2026-09-08 실측에서 "HUGE! BIS USES XRP LEDGER" 한 건이 스테이블코인·ETF·
+    블록체인·규제·보안·은행 6개 토픽에 동시에 걸렸다. 유튜브는 조회수가 자릿수로
+    벌어져서, 그런 영상 하나가 여러 토픽의 view_sum 을 동시에 부풀리면 순위가
+    통째로 왜곡된다. `collect_daily._title_hits` 가 policy 등급을 제목만으로
+    판정하는 것과 같은 이유다.
+    """
+    if not title:
+        return set()
+    return {
+        topic
+        for topic in known_topics
+        if len(topic) >= MIN_TITLE_MATCH_LEN
+        and any(_mentions_term(title, alias) for alias in _topic_aliases(topic))
+    }
 
 
 def _item_topics(raw_tags: list[str]) -> set[str]:
@@ -199,6 +259,36 @@ class _Accumulator:
                 bucket.append({"title": title, "url": url or "", "source": source_name or ""})
 
 
+def _score_all(acc: "_Accumulator", now: datetime.datetime) -> list[dict[str, Any]]:
+    """누산기 상태를 점수순 목록으로 만든다. 점수 공식의 유일한 자리다.
+
+    `rank_topics` 가 두 번 부른다 — 한 번은 뉴스·X 만으로 영상 제목을 대조할
+    기준 토픽을 추리려고, 다시 한 번은 영상까지 넣은 최종 순위를 내려고.
+    """
+    scored: list[dict[str, Any]] = []
+    for topic, mentions in acc.mentions.items():
+        diversity = len(acc.sources[topic]) ** 1.5
+        volume = math.log2(1 + mentions)
+        recency = _recency_multiplier(acc.latest.get(topic), now)
+        youtube = 1 + math.log10(1 + acc.view_sum.get(topic, 0)) / 10
+        tweet_mentions = acc.tweet_mentions.get(topic, 0)
+        x_buzz = 1 + math.log10(1 + tweet_mentions) / 10
+        score = diversity * volume * recency * youtube * x_buzz
+        scored.append(
+            {
+                "topic": topic,
+                "score": score,
+                "mentions": mentions,
+                "sources": len(acc.sources[topic]),
+                "tweet_mentions": tweet_mentions,
+                "source_names": sorted(acc.sources[topic]),
+                "examples": acc.examples.get(topic, []),
+            }
+        )
+    scored.sort(key=lambda s: s["score"], reverse=True)
+    return scored
+
+
 def rank_topics(
     news: list[dict[str, Any]],
     videos: list[dict[str, Any]],
@@ -221,6 +311,10 @@ def rank_topics(
             유튜브 반응도 신호로 더하되, 조회수는 자릿수 단위로 벌어지므로
             log10을 쓰고 나눗셈으로 완만하게 만든다 — 기사 위주 토픽이 조회수
             보정만으로 순위가 뒤집히지 않게 하는 정도로만 가중한다.
+            영상이 어느 토픽에 속하는지는 태그와 **제목 대조**로 정한다
+            (`_title_topics`). 태그만 보던 동안에는 my-youtube 가 모든 영상에
+            topic="비트코인" 하나만 붙이고 그 말이 STOPWORDS 라, 이 배수가
+            한 번도 1.0 을 벗어난 적이 없었다(2026-09-07~09 실측).
         x_buzz = 1 + log10(1 + X 언급 수) / 10
             X 반응도 같은 방식으로 얹는다. 계정을 sources 에 합치지 않는 이유는
             `_Accumulator.add_tweet` 주석에 있다 — 계정 수가 매체 수를 압도해
@@ -249,9 +343,35 @@ def rank_topics(
                 url=item.get("url"),
             )
 
+    # X 를 영상보다 먼저 본다 — 영상은 아래에서 "지금까지 모인 토픽"으로 제목을
+    # 대조하므로, 뉴스와 X 의 토픽이 다 모인 뒤라야 붙을 자리가 생긴다.
+    for item in tweets or []:
+        topics = _item_topics(item.get("tags") or [])
+        published = _parse_kst(item.get("time") or item.get("crawled_at"))
+        for topic in topics:
+            acc.add_tweet(topic, published)
+
+    # 영상 제목을 대조할 기준 토픽. 뉴스·X 태그를 다 모으면 한 번 스친 말까지
+    # 토픽이 되므로(2026-09-10 실측 679개) 상위 TITLE_MATCH_POOL 개로 좁힌다.
+    # 이 시점의 acc 에는 뉴스와 X 만 들어 있어 영상이 자기 순위를 스스로 밀어
+    # 올리는 일이 없다.
+    #
+    # 점수 상위만으로는 부족하다. 점수는 mentions(뉴스·영상) 기반이라 X 에서만
+    # 나온 토픽은 volume 이 0 이라 아예 순위에 없다. "뉴스는 안 다뤘는데 X 와
+    # 유튜브가 동시에 다룬 화제"는 놓치면 안 되는 신호라, X 언급 상위도 같이
+    # 기준에 넣는다.
+    by_score = [entry["topic"] for entry in _score_all(acc, now)[:TITLE_MATCH_POOL]]
+    by_buzz = sorted(acc.tweet_mentions, key=lambda t: -acc.tweet_mentions[t])
+    known_topics = set(by_score) | set(by_buzz[:TITLE_MATCH_POOL])
+
     for item in videos:
         raw_tags = [item.get("topic") or "", *_extract_hashtags(item.get("title") or "")]
-        topics = _item_topics(raw_tags)
+        # 태그 경로와 제목 대조 경로를 합친다. 태그 경로를 남기는 이유는 my-youtube 가
+        # 나중에 태그를 제대로 붙이기 시작하면 그쪽이 저절로 살아나야 해서다.
+        # 지금은 모든 영상에 topic 이 "비트코인" 하나뿐이고 그 말이 STOPWORDS 라
+        # 태그 경로만으로는 영상이 한 건도 집계에 들어오지 못한다(2026-09-07~09 실측:
+        # 상위 15개 토픽의 매체 목록에 유튜브 채널 0개). 그래서 제목 대조를 더한다.
+        topics = _item_topics(raw_tags) | _title_topics(item.get("title") or "", known_topics)
         published = _parse_kst(item.get("published_at"))
         # my-youtube 응답에 url이 없는 항목이 있어 id로 복원한다.
         video_url = item.get("url")
@@ -267,37 +387,10 @@ def rank_topics(
                 url=video_url,
             )
 
-    for item in tweets or []:
-        topics = _item_topics(item.get("tags") or [])
-        published = _parse_kst(item.get("time") or item.get("crawled_at"))
-        for topic in topics:
-            acc.add_tweet(topic, published)
-
     if not acc.mentions:
         return []
 
-    scored: list[dict[str, Any]] = []
-    for topic, mentions in acc.mentions.items():
-        diversity = len(acc.sources[topic]) ** 1.5
-        volume = math.log2(1 + mentions)
-        recency = _recency_multiplier(acc.latest.get(topic), now)
-        youtube = 1 + math.log10(1 + acc.view_sum.get(topic, 0)) / 10
-        tweet_mentions = acc.tweet_mentions.get(topic, 0)
-        x_buzz = 1 + math.log10(1 + tweet_mentions) / 10
-        score = diversity * volume * recency * youtube * x_buzz
-        scored.append(
-            {
-                "topic": topic,
-                "score": score,
-                "mentions": mentions,
-                "sources": len(acc.sources[topic]),
-                "tweet_mentions": tweet_mentions,
-                "source_names": sorted(acc.sources[topic]),
-                "examples": acc.examples.get(topic, []),
-            }
-        )
-
-    scored.sort(key=lambda s: s["score"], reverse=True)
+    scored = _score_all(acc, now)
     top = scored[:TOP_N]
     max_score = top[0]["score"] if top else 0.0
 

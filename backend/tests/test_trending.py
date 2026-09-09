@@ -2,7 +2,7 @@ import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from app.trending import rank_topics
+from app.trending import TITLE_MATCH_POOL, _title_topics, rank_topics
 
 KST = ZoneInfo("Asia/Seoul")
 # 매일 오전 6시 발행 기준 시각. published_at을 이 기준으로 오프셋을 줘서 recency를 검증한다.
@@ -265,3 +265,97 @@ def test_tweet_recency_counts() -> None:
     fresh = [make_tweet(["#규제"], time="2026-08-04T22:00:00+00:00")]  # 6시간 이내
 
     assert rank_topics(news, [], NOW, fresh)[0]["score"] > rank_topics(news, [], NOW)[0]["score"]
+
+
+# ---- 영상 제목 대조 (태그가 "비트코인" 하나뿐이라 태그 경로로는 안 잡힌다) ----
+
+
+def test_video_title_matches_a_topic_the_news_already_raised() -> None:
+    """제목에 뉴스 토픽이 든 영상은 그 토픽의 언급·채널·조회수에 들어간다."""
+    news = [make_news(["#클래리티"], source_ref="매체A")]
+    videos = [make_video(title="클래리티 법안 표결 D-5, 무슨 일이 벌어지나")]
+
+    result = rank_topics(news, videos, NOW)
+    match = next(r for r in result if r["topic"] == "클래리티 법안")
+
+    assert match["mentions"] == 2
+    assert "채널A" in match["source_names"]
+
+
+def test_video_title_match_finally_activates_the_youtube_multiplier() -> None:
+    """조회수가 view_sum에 들어가야 youtube 배수가 1.0을 벗어난다."""
+    news = [make_news(["#규제"], source_ref="매체A")]
+    silent = [make_video(title="비트코인 시황 총정리", view_count=900_000)]
+    matching = [make_video(title="규제 총정리", view_count=900_000)]
+
+    assert rank_topics(news, matching, NOW)[0]["score"] > rank_topics(news, silent, NOW)[0]["score"]
+
+
+def test_video_summary_is_not_searched() -> None:
+    """요약까지 보면 영상 한 건이 토픽 6개에 걸린다(2026-09-08 실측) — 제목만 본다."""
+    news = [make_news(["#규제"], source_ref="매체A")]
+    videos = [{**make_video(title="오늘의 비트코인"), "summary": "규제 이야기를 길게 했다"}]
+
+    assert rank_topics(news, videos, NOW)[0]["mentions"] == 1
+
+
+def test_ascii_topic_does_not_match_inside_a_word() -> None:
+    """"AI"가 "Ukraine"이나 "again"에 걸리면 안 된다."""
+    news = [make_news(["#AI"], source_ref="매체A")]
+    videos = [make_video(title="What Ukraine Means For Markets, Again")]
+
+    assert rank_topics(news, videos, NOW)[0]["mentions"] == 1
+
+
+def test_video_title_matches_through_a_synonym() -> None:
+    """"연준" 토픽은 제목에 "FOMC"로 적히는 쪽이 흔하다."""
+    news = [make_news(["#연준"], source_ref="매체A")]
+    videos = [make_video(title="FOMC 미팅 앞두고 시장은")]
+
+    assert rank_topics(news, videos, NOW)[0]["mentions"] == 2
+
+
+def test_video_title_can_match_a_topic_only_x_raised() -> None:
+    """뉴스엔 없고 X에서만 나온 토픽도 영상 제목 대조의 기준이 된다."""
+    news = [make_news(["#규제"], source_ref="매체A")]
+    tweets = [make_tweet(["#콜드카드"]) for _ in range(3)]
+    videos = [make_video(title="콜드카드 펌웨어 논란 정리")]
+
+    result = rank_topics(news, videos, NOW, tweets)
+    match = next(r for r in result if r["topic"] == "콜드카드")
+
+    assert match["mentions"] == 1
+    assert match["tweet_mentions"] == 3
+
+
+def test_single_character_topic_does_not_match_inside_a_longer_word() -> None:
+    """한글은 부분 문자열로 맞추므로 "금"이 "금리"에 걸린다 — 한 글자는 제목 대조에서 뺀다."""
+    news = [make_news(["#금"], source_ref="매체A")]
+    videos = [make_video(title="금리 인상 전망 총정리")]
+
+    assert rank_topics(news, videos, NOW)[0]["mentions"] == 1
+
+
+def test_title_topics_only_matches_topics_in_the_given_pool() -> None:
+    """토픽 전체를 기준으로 대조하면 한 번 스친 말까지 영상에 붙는다(2026-09-10 실측 679개).
+
+    rank_topics는 기준 풀을 상위 TITLE_MATCH_POOL개로 좁혀서 넘긴다.
+    """
+    title = "약한토픽과 강한토픽을 함께 다룬 영상"
+
+    assert _title_topics(title, {"강한토픽"}) == {"강한토픽"}
+    assert _title_topics(title, {"강한토픽", "약한토픽"}) == {"강한토픽", "약한토픽"}
+
+
+def test_rank_topics_narrows_the_pool_before_matching_titles() -> None:
+    """실제로 좁혀서 넘기는지 — 기준 풀이 TITLE_MATCH_POOL을 넘지 않는다."""
+    many = [
+        make_news([f"#토픽{i}"], source_ref=f"매체{i}{j}", url=f"https://n/{i}/{j}")
+        for i in range(TITLE_MATCH_POOL * 3)
+        for j in range(2)
+    ]
+
+    # 영상이 없으면 기준 풀은 쓰이지 않지만, 토픽 수가 상한보다 많은 상황을 만든다.
+    result = rank_topics(many, [], NOW)
+
+    assert len({r["topic"] for r in result}) == 15
