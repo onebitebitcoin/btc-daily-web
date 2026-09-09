@@ -1,3 +1,4 @@
+import datetime
 import io
 
 import httpx
@@ -5,6 +6,7 @@ from PIL import Image
 from test_routes import reference_payload, seed_edition
 
 from app.config import Settings, get_settings
+from app.models import Edition
 
 
 def _fake_source_image_bytes(size: tuple[int, int] = (300, 200)) -> bytes:
@@ -12,6 +14,14 @@ def _fake_source_image_bytes(size: tuple[int, int] = (300, 200)) -> bytes:
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
+
+
+def _republish(session_factory, content) -> None:
+    """이미 있는 날짜의 내용을 갈아끼운다 — seed_edition은 새 행을 넣어 PK가 충돌한다."""
+    with session_factory() as session:
+        edition = session.get(Edition, datetime.date.fromisoformat(content["meta"]["date"]))
+        edition.content = content
+        session.commit()
 
 
 def _payload_with_image_url(date: str, url: str | None = "https://example.com/thumb.jpg"):
@@ -91,6 +101,80 @@ def test_og_image_second_request_hits_cache(client, tmp_path, monkeypatch) -> No
     assert first.status_code == 200
     assert second.status_code == 200
     assert len(calls) == 1
+
+
+def test_og_image_prefers_meta_og_image_over_card_one(client, tmp_path, monkeypatch) -> None:
+    """meta.og_image가 있으면 카드 1의 그림 대신 그것을 가져온다."""
+    override_og_cache_dir(client, tmp_path)
+    payload = _payload_with_image_url("2026-07-30", url="https://example.com/card-one.jpg")
+    payload["meta"]["og_image"] = "https://example.com/thumbnail.jpg"
+    seed_edition(client.session_factory, payload)
+
+    calls = []
+
+    def fake_get(url, timeout=None, follow_redirects=None):
+        calls.append(url)
+        fake_request = httpx.Request("GET", url)
+        return httpx.Response(200, content=_fake_source_image_bytes(), request=fake_request)
+
+    monkeypatch.setattr("app.routes.httpx.get", fake_get)
+
+    response = client.get("/api/og/2026-07-30/image.jpg")
+
+    assert response.status_code == 200
+    assert calls == ["https://example.com/thumbnail.jpg"]
+
+
+def test_og_image_falls_back_to_card_one_when_override_absent(
+    client, tmp_path, monkeypatch
+) -> None:
+    """meta.og_image가 없는 과거 에디션은 예전대로 카드 1의 그림을 쓴다."""
+    override_og_cache_dir(client, tmp_path)
+    payload = _payload_with_image_url("2026-07-30", url="https://example.com/card-one.jpg")
+    payload["meta"].pop("og_image", None)
+    seed_edition(client.session_factory, payload)
+
+    calls = []
+
+    def fake_get(url, timeout=None, follow_redirects=None):
+        calls.append(url)
+        fake_request = httpx.Request("GET", url)
+        return httpx.Response(200, content=_fake_source_image_bytes(), request=fake_request)
+
+    monkeypatch.setattr("app.routes.httpx.get", fake_get)
+
+    response = client.get("/api/og/2026-07-30/image.jpg")
+
+    assert response.status_code == 200
+    assert calls == ["https://example.com/card-one.jpg"]
+
+
+def test_og_image_rebuilds_when_source_changes(client, tmp_path, monkeypatch) -> None:
+    """같은 날짜를 다른 썸네일로 재발행하면 캐시가 아니라 새 원본을 굽는다.
+
+    지문 없이 날짜만으로 캐시하던 시절에는 여기서 옛 그림이 계속 나갔다.
+    """
+    override_og_cache_dir(client, tmp_path)
+    payload = _payload_with_image_url("2026-07-30", url="https://example.com/old.jpg")
+    seed_edition(client.session_factory, payload)
+
+    calls = []
+
+    def fake_get(url, timeout=None, follow_redirects=None):
+        calls.append(url)
+        fake_request = httpx.Request("GET", url)
+        return httpx.Response(200, content=_fake_source_image_bytes(), request=fake_request)
+
+    monkeypatch.setattr("app.routes.httpx.get", fake_get)
+
+    assert client.get("/api/og/2026-07-30/image.jpg").status_code == 200
+
+    republished = _payload_with_image_url("2026-07-30", url="https://example.com/old.jpg")
+    republished["meta"]["og_image"] = "https://example.com/new.jpg"
+    _republish(client.session_factory, republished)
+
+    assert client.get("/api/og/2026-07-30/image.jpg").status_code == 200
+    assert calls == ["https://example.com/old.jpg", "https://example.com/new.jpg"]
 
 
 def test_og_image_missing_media_returns_404(client, tmp_path) -> None:

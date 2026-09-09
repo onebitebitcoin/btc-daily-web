@@ -69,7 +69,9 @@ export interface Trending {
 }
 
 export interface EditionContent {
-  meta: { title: string; slug: string; date: string };
+  // og_image는 백엔드가 링크 공유 미리보기를 구울 때만 읽는다(app/og.py). 프론트는
+  // 쓰지 않지만, 타입에서 빠져 있으면 스키마가 갈라진 줄 모르고 지나친다.
+  meta: { title: string; slug: string; date: string; og_image?: string | null };
   theme: Theme;
   brand: string;
   cover: Cover;

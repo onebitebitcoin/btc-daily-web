@@ -5,6 +5,7 @@ SNS 크롤러는 JS를 실행하지 않으므로 SPA의 정적 index.html로는 
 백엔드로 라우팅했을 때 쓰인다(frontend/nginx.conf 참고).
 """
 
+import hashlib
 import html
 import io
 from pathlib import Path
@@ -23,9 +24,18 @@ LOGO_RING_PADDING = 8
 
 
 def resolve_og_image_url(content: dict[str, Any]) -> str | None:
-    """카드 1(첫 뉴스 카드)의 이미지 URL을 반환한다. stem(번들 asset)이나
-    이미지 자체가 없으면 None — CONTENT_CONTRACT.md 4장에 따르면 배포본은
-    항상 절대 URL을 쓰므로, stem은 로컬 시드 fixture에서만 나온다."""
+    """링크 미리보기에 쓸 이미지 URL을 고른다.
+
+    `meta.og_image`가 있으면 그것을, 없으면 카드 1(첫 뉴스 카드)의 이미지를 쓴다.
+    카드 1의 그림은 그 기사에 맞춰 고른 것이라, 1200x630으로 중앙을 자르면 피사체가
+    잘려나가거나 톤이 브랜드와 어긋나는 날이 있다. 그럴 때 카드 본문은 그대로 두고
+    썸네일만 갈아끼우라고 `meta.og_image`를 둔다.
+
+    stem(번들 asset)이나 이미지 자체가 없으면 None — CONTENT_CONTRACT.md 4장에
+    따르면 배포본은 항상 절대 URL을 쓰므로, stem은 로컬 시드 fixture에서만 나온다."""
+    override = (content.get("meta") or {}).get("og_image")
+    if override and override.startswith("http"):
+        return override
     cards = content.get("cards") or []
     if not cards:
         return None
@@ -79,8 +89,20 @@ def og_image_bytes_to_jpeg(raw: bytes) -> bytes:
     return buf.getvalue()
 
 
-def og_cache_path(cache_dir: str, date_iso: str) -> Path:
-    return Path(cache_dir) / f"{date_iso}.jpg"
+def source_fingerprint(url: str) -> str:
+    """원본 URL의 짧은 해시. `imgproxy.source_fingerprint`와 같은 역할이다."""
+    return hashlib.sha256(url.encode()).hexdigest()[:12]
+
+
+def og_cache_path(cache_dir: str, date_iso: str, source_url: str) -> Path:
+    """캐시 파일명에 원본 URL 지문을 넣는다 — 같은 날짜를 다른 그림으로 재발행하면
+    키가 달라져 새로 굽는다.
+
+    지문이 없던 시절에는 파일명이 날짜뿐이라, 썸네일을 바꿔 재발행해도 서버에 남은
+    옛 캐시가 계속 나갔다. 캐시를 지우려면 서버에 들어가 파일을 지우는 수밖에
+    없었는데, 그건 발행 절차가 감당할 일이 아니다. `imgproxy.cache_path`가 카드
+    이미지에 쓰는 방식과 같다."""
+    return Path(cache_dir) / f"{date_iso}-{source_fingerprint(source_url)}.jpg"
 
 
 def build_og_description(content: dict[str, Any], max_len: int = DESCRIPTION_MAX_LEN) -> str:

@@ -14,6 +14,11 @@ class Meta(_Strict):
     title: str
     slug: str
     date: datetime.date
+    #  링크 공유 미리보기(OG) 전용 이미지. 비워두면 카드 1의 이미지를 쓴다
+    #  (`app/og.py`의 `resolve_og_image_url`). 카드 1의 그림이 기사에는 맞아도
+    #  1200x630으로 잘리면 안 읽히거나 톤이 어긋나는 날이 있어, 카드 본문을
+    #  건드리지 않고 썸네일만 갈아끼우려고 둔다.
+    og_image: str | None = None
 
 
 class Theme(_Strict):

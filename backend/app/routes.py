@@ -157,10 +157,9 @@ def get_og_image(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> FileResponse:
-    cache_path = og_cache_path(settings.og_cache_dir, date.isoformat())
-    if cache_path.exists():
-        return FileResponse(cache_path, media_type="image/jpeg")
-
+    # 캐시 키에 원본 URL 지문이 들어가므로 에디션을 먼저 읽어야 경로가 정해진다.
+    # 캐시 히트에도 DB를 한 번 보게 되지만, 이 엔드포인트는 SNS 크롤러만 때리는
+    # 저빈도 경로이고, 그 대가로 썸네일을 바꿔 재발행하면 캐시가 저절로 비켜난다.
     edition = db.get(Edition, date)
     if edition is None:
         raise HTTPException(status_code=404, detail=f"no edition for date {date.isoformat()}")
@@ -168,6 +167,10 @@ def get_og_image(
     image_url = resolve_og_image_url(edition.content)
     if image_url is None:
         raise HTTPException(status_code=404, detail="no source image for this edition")
+
+    cache_path = og_cache_path(settings.og_cache_dir, date.isoformat(), image_url)
+    if cache_path.exists():
+        return FileResponse(cache_path, media_type="image/jpeg")
 
     try:
         resp = httpx.get(image_url, timeout=10, follow_redirects=True)
