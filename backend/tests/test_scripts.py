@@ -720,6 +720,64 @@ def test_trending_pool_videos_uses_a_24h_window_not_the_card_48h() -> None:
     assert [v["id"] for v in result] == ["fresh"]
 
 
+# ---- collect_daily.trending_pool_tweets / tweet_account / corpus_summary ----
+
+
+def make_tweet(
+    tags: list[str] | None = None,
+    user: str = "표시명\n@handle_a\n·\n12분",
+    time: str = "2026-07-31T01:00:00+00:00",
+) -> dict[str, Any]:
+    return {"tags": tags if tags is not None else ["#비트코인"], "user": user, "time": time}
+
+
+def test_tweet_account_pulls_the_handle_out_of_a_multiline_user() -> None:
+    """my-news의 user는 표시명·핸들·시간이 줄바꿈으로 붙어 온다 — 그대로 세면 계정이 갈린다."""
+    assert collect_daily.tweet_account(make_tweet()) == "@handle_a"
+
+
+def test_tweet_account_falls_back_when_there_is_no_handle() -> None:
+    assert collect_daily.tweet_account({"user": "핸들없음"}) == "핸들없음"
+    assert collect_daily.tweet_account({"user": ""}) is None
+
+
+def test_trending_pool_tweets_is_bounded_to_24h() -> None:
+    items = [
+        make_tweet(time="2026-07-29T00:00:00+00:00"),
+        make_tweet(time="2026-07-31T01:00:00+00:00"),
+    ]
+
+    result = collect_daily.trending_pool_tweets(items, NOW)
+
+    assert [t["time"] for t in result] == ["2026-07-31T01:00:00+00:00"]
+
+
+def test_trending_pool_tweets_skips_unparsable_timestamps() -> None:
+    """시각 하나가 깨졌다고 배치를 죽이지 않는다 — 그 항목만 버린다."""
+    items = [make_tweet(time="어제"), make_tweet(), {"tags": ["#비트코인"]}]
+
+    assert len(collect_daily.trending_pool_tweets(items, NOW)) == 1
+
+
+def test_corpus_summary_note_mentions_x_when_tweets_exist() -> None:
+    tweets = [make_tweet(user=f"이름{i}\n@acct{i}\n·\n1분") for i in range(3)]
+
+    summary = collect_daily.corpus_summary([make_news()], [make_video()], tweets)
+
+    assert summary["tweets"] == 3
+    assert summary["accounts"] == 3
+    assert "X 3건 3계정" in summary["note"]
+    assert summary["note"].endswith("집계")
+
+
+def test_corpus_summary_note_omits_x_when_the_feed_was_unreadable() -> None:
+    """X를 못 읽은 날 "X 0건"을 찍으면 봤는데 없었다는 뜻으로 읽혀 사실과 어긋난다."""
+    summary = collect_daily.corpus_summary([make_news()], [make_video()])
+
+    assert "X " not in summary["note"]
+    assert summary["tweets"] == 0
+
+
 # ---- collect_daily.filter_videos ----
 
 

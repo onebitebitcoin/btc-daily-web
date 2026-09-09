@@ -202,3 +202,66 @@ def test_top15_cap_even_with_more_candidate_topics() -> None:
     result = rank_topics(items, [], NOW)
 
     assert len(result) == 15
+
+
+# ---- X(트위터) 집계 ----
+
+
+def make_tweet(
+    tags: list[str],
+    user: str = "표시명\n@handle_a\n·\n12분",
+    time: str = "2026-08-05T02:00:00+00:00",
+) -> dict[str, Any]:
+    return {"tags": tags, "user": user, "time": time}
+
+
+def test_tweets_raise_score_without_touching_displayed_counts() -> None:
+    """X 언급은 순위를 움직이되 카드에 찍히는 "N건 N매체"는 건드리지 않는다."""
+    news = [make_news(["#규제"], source_ref="매체A")]
+    tweets = [make_tweet(["#규제"]) for _ in range(20)]
+
+    without = rank_topics(news, [], NOW)[0]
+    with_tweets = rank_topics(news, [], NOW, tweets)[0]
+
+    assert with_tweets["score"] > without["score"]
+    assert with_tweets["mentions"] == without["mentions"]
+    assert with_tweets["sources"] == without["sources"]
+    assert with_tweets["tweet_mentions"] == 20
+    assert without["tweet_mentions"] == 0
+
+
+def test_tweet_accounts_do_not_enter_source_names() -> None:
+    """계정을 매체로 세면 diversity가 X에 지배된다 — source_names에 안 들어가야 한다."""
+    news = [make_news(["#규제"], source_ref="매체A")]
+    tweets = [make_tweet(["#규제"], user=f"이름{i}\n@acct{i}\n·\n1분") for i in range(30)]
+
+    result = rank_topics(news, [], NOW, tweets)[0]
+
+    assert result["source_names"] == ["매체A"]
+    assert result["sources"] == 1
+
+
+def test_tweets_alone_do_not_create_a_topic() -> None:
+    """뉴스·영상이 한 건도 없는 토픽은 X만으로 순위에 오르지 않는다.
+
+    mentions가 0이면 volume(log2(1+0))도 0이라 점수 자체가 성립하지 않는다.
+    """
+    tweets = [make_tweet(["#어떤토픽"]) for _ in range(50)]
+
+    assert rank_topics([], [], NOW, tweets) == []
+
+
+def test_omitting_tweets_keeps_previous_behaviour() -> None:
+    """tweets를 안 넘기면 X 배수가 1.0이라 예전 점수가 그대로 나온다."""
+    news = [make_news(["#규제"], source_ref="매체A")]
+
+    assert rank_topics(news, [], NOW) == rank_topics(news, [], NOW, [])
+
+
+def test_tweet_recency_counts() -> None:
+    """X 언급의 시각도 최근성에 반영된다 — 지금 막 터진 신호는 X가 가장 빠르다."""
+    old = "2026-08-04T02:00:00+00:00"  # NOW 기준 27시간 전
+    news = [make_news(["#규제"], source_ref="매체A", published_at=old)]
+    fresh = [make_tweet(["#규제"], time="2026-08-04T22:00:00+00:00")]  # 6시간 이내
+
+    assert rank_topics(news, [], NOW, fresh)[0]["score"] > rank_topics(news, [], NOW)[0]["score"]

@@ -82,6 +82,11 @@ class TopicSignal(TypedDict):
     heat: int
     mentions: int
     sources: int
+    #  X 언급 수. mentions 와 따로 두는 이유는 `rank_topics` 본문 주석 참고 —
+    #  카드에 찍히는 "N건 N매체"는 뉴스·영상 기준이어야 하고, X 반응은 순위를
+    #  움직이는 근거로만 쓴다. 카드 10장을 고를 때 "뉴스는 조용했는데 X 가
+    #  시끄러웠던 토픽"을 알아보라고 draft 에 실어 둔다.
+    tweet_mentions: int
     source_names: list[str]
     example_titles: list[str]
     articles: list[ArticleRef]
@@ -151,6 +156,22 @@ class _Accumulator:
         self.latest: dict[str, datetime.datetime] = {}
         self.view_sum: dict[str, int] = {}
         self.examples: dict[str, list[ArticleRef]] = {}
+        #  X 는 sources/mentions 와 분리해서 센다(add_tweet 참고).
+        self.tweet_mentions: dict[str, int] = {}
+
+    def add_tweet(self, topic: str, published: datetime.datetime | None) -> None:
+        """X 언급 하나를 센다. sources/mentions/examples 는 건드리지 않는다.
+
+        계정을 매체와 같은 층에 넣으면 diversity(매체 수 ** 1.5)가 X 에 지배된다 —
+        24시간 트윗이 683건 313계정인데 뉴스는 168건 22매체라(2026-09-10 실측),
+        합치는 순간 뉴스 기반 순위 구조가 통째로 뒤집힌다. 최신성에는 기여하게
+        둔다 — 지금 막 터진 토픽이라는 신호는 X 가 가장 빠르다.
+        """
+        self.tweet_mentions[topic] = self.tweet_mentions.get(topic, 0) + 1
+        if published is not None:
+            current = self.latest.get(topic)
+            if current is None or published > current:
+                self.latest[topic] = published
 
     def add(
         self,
@@ -182,8 +203,9 @@ def rank_topics(
     news: list[dict[str, Any]],
     videos: list[dict[str, Any]],
     now: datetime.datetime,
+    tweets: list[dict[str, Any]] | None = None,
 ) -> list[TopicSignal]:
-    """뉴스/영상 후보에서 토픽을 뽑아 "얼마나 핫했는지" 점수순으로 상위 15개를 낸다.
+    """뉴스/영상/X 후보에서 토픽을 뽑아 "얼마나 핫했는지" 점수순으로 상위 15개를 낸다.
 
     점수 공식과 근거:
         diversity = (서로 다른 매체 수) ** 1.5
@@ -199,9 +221,16 @@ def rank_topics(
             유튜브 반응도 신호로 더하되, 조회수는 자릿수 단위로 벌어지므로
             log10을 쓰고 나눗셈으로 완만하게 만든다 — 기사 위주 토픽이 조회수
             보정만으로 순위가 뒤집히지 않게 하는 정도로만 가중한다.
-        score = diversity * volume * recency * youtube
+        x_buzz = 1 + log10(1 + X 언급 수) / 10
+            X 반응도 같은 방식으로 얹는다. 계정을 sources 에 합치지 않는 이유는
+            `_Accumulator.add_tweet` 주석에 있다 — 계정 수가 매체 수를 압도해
+            diversity 를 통째로 삼킨다. 배수로 넣으면 뉴스 기반 순위를 유지한 채
+            "X 에서도 시끄러웠다"만 순위에 얹힌다.
+        score = diversity * volume * recency * youtube * x_buzz
 
     heat은 최고 점수를 100으로 정규화한 정수다.
+
+    tweets 를 안 넘기면(기본값) X 배수가 전부 1.0 이라 예전과 같은 순위가 나온다.
     """
     if now.tzinfo is None:
         now = now.replace(tzinfo=KST)
@@ -238,6 +267,12 @@ def rank_topics(
                 url=video_url,
             )
 
+    for item in tweets or []:
+        topics = _item_topics(item.get("tags") or [])
+        published = _parse_kst(item.get("time") or item.get("crawled_at"))
+        for topic in topics:
+            acc.add_tweet(topic, published)
+
     if not acc.mentions:
         return []
 
@@ -247,13 +282,16 @@ def rank_topics(
         volume = math.log2(1 + mentions)
         recency = _recency_multiplier(acc.latest.get(topic), now)
         youtube = 1 + math.log10(1 + acc.view_sum.get(topic, 0)) / 10
-        score = diversity * volume * recency * youtube
+        tweet_mentions = acc.tweet_mentions.get(topic, 0)
+        x_buzz = 1 + math.log10(1 + tweet_mentions) / 10
+        score = diversity * volume * recency * youtube * x_buzz
         scored.append(
             {
                 "topic": topic,
                 "score": score,
                 "mentions": mentions,
                 "sources": len(acc.sources[topic]),
+                "tweet_mentions": tweet_mentions,
                 "source_names": sorted(acc.sources[topic]),
                 "examples": acc.examples.get(topic, []),
             }
@@ -274,6 +312,7 @@ def rank_topics(
                 "heat": heat,
                 "mentions": entry["mentions"],
                 "sources": entry["sources"],
+                "tweet_mentions": entry["tweet_mentions"],
                 "source_names": entry["source_names"],
                 "example_titles": [a["title"] for a in examples[:3]],
                 # url이 없는 항목은 뺀다 — 펼쳤을 때 눌리지 않는 줄이 남으면 고장으로 보인다.

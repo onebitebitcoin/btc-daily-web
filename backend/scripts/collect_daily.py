@@ -56,6 +56,10 @@ DEFAULT_TRENDING_NEWS_URL = "http://localhost:8000/api/news?asset=btc&limit=500"
 # 뉴스가 대부분이고, 그중 일부는 내용과 무관한 tags:['bitcoin'] 이 붙어 있어
 # 그대로 두면 야구 기사가 btc 등급으로 샌다(실측). 등급 제한이 그 방어선이다.
 DEFAULT_MACRO_NEWS_URL = "http://localhost:8000/api/news?limit=500"
+# X(트위터) 집계 풀. `/api/tweets` 는 limit 파라미터가 없어 4만9천건 38MB 를 통째로
+# 주므로 쓰지 않는다. `/api/feed` 는 limit 으로 자를 수 있고, 2000 이면 24시간 창을
+# 덮고도 남는다(2026-09-10 실측: 2000건 중 24h 이내 683건 313계정).
+DEFAULT_TWEETS_URL = "http://localhost:8000/api/feed?asset=btc&limit=2000&sort=time"
 # full=1 없으면 my-youtube 가 summary/highlights/description 을 뺀 경량 응답을 준다.
 # 그러면 filter_videos 의 `summary` 조건에 전부 걸려 후보가 조용히 0건이 된다(2026-08-05).
 DEFAULT_YOUTUBE_URL = "http://localhost:23456/api/queue?full=1"
@@ -1036,8 +1040,49 @@ def trending_pool_videos(
     ]
 
 
-def corpus_summary(news: list[dict[str, Any]], videos: list[dict[str, Any]]) -> dict[str, Any]:
-    """트렌딩 집계가 실제로 무엇을 봤는지 — 건수와 매체/채널 수.
+def tweet_account(tweet: dict[str, Any]) -> str | None:
+    """트윗의 계정 핸들. my-news 의 `user` 는 여러 줄이다.
+
+    "₿ig Picture\n@BtcPicture\n·\n12분" 처럼 표시명·핸들·시간이 줄바꿈으로 붙어
+    있어서, 그대로 세면 같은 계정이 시간 문구 때문에 여러 개로 갈린다.
+    """
+    raw = str(tweet.get("user") or "")
+    for line in raw.split("\n"):
+        line = line.strip()
+        if line.startswith("@"):
+            return line
+    return raw.strip() or None
+
+
+def trending_pool_tweets(
+    items: list[dict[str, Any]], now: datetime.datetime
+) -> list[dict[str, Any]]:
+    """트렌딩 집계용 24시간 X 코퍼스. 창 필터만 한다.
+
+    트윗에는 my-news 가 뉴스와 같은 모양의 `tags` 를 붙여 주므로(예:
+    ['#거시경제', '#인플레이션', '#연준']) 별도 토픽 추출이 필요 없다.
+    """
+    cutoff = now - datetime.timedelta(hours=24)
+    fresh = []
+    for t in items:
+        stamp = t.get("time") or t.get("crawled_at")
+        if not stamp:
+            continue
+        try:
+            when = _parse_dt(stamp)
+        except ValueError:
+            continue
+        if when >= cutoff:
+            fresh.append(t)
+    return fresh
+
+
+def corpus_summary(
+    news: list[dict[str, Any]],
+    videos: list[dict[str, Any]],
+    tweets: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """트렌딩 집계가 실제로 무엇을 봤는지 — 건수와 매체/채널/계정 수.
 
     `note` 문자열까지 여기서 완성해 draft 에 굽는다. 발행 문구를 쓰는 주체는
     Claude 지만 **이 숫자만은 세는 것이지 쓰는 게 아니다.** draft 에 없으면 무인
@@ -1046,17 +1091,26 @@ def corpus_summary(news: list[dict[str, Any]], videos: list[dict[str, Any]]) -> 
     """
     outlets = {n.get("source_ref") for n in news if n.get("source_ref")}
     channels = {v.get("channel_title") for v in videos if v.get("channel_title")}
+    tweets = tweets or []
+    accounts = {a for a in (tweet_account(t) for t in tweets) if a}
+    note = (
+        f"뉴스 {len(news)}건 {len(outlets)}매체 · "
+        f"유튜브 {len(videos)}건 {len(channels)}채널"
+    )
+    # X 를 못 읽은 날(피드 장애)에는 문구를 늘리지 않는다 — 카드에 "X 0건"이 찍히면
+    # 집계가 X 를 봤는데 아무것도 없었다는 뜻으로 읽혀 사실과 어긋난다.
+    if tweets:
+        note += f" · X {len(tweets)}건 {len(accounts)}계정"
     return {
         "news": len(news),
         "outlets": len(outlets),
         "videos": len(videos),
         "channels": len(channels),
+        "tweets": len(tweets),
+        "accounts": len(accounts),
         "outlet_names": sorted(outlets),
         "channel_names": sorted(channels),
-        "note": (
-            f"뉴스 {len(news)}건 {len(outlets)}매체 · "
-            f"유튜브 {len(videos)}건 {len(channels)}채널 집계"
-        ),
+        "note": f"{note} 집계",
     }
 
 
@@ -1290,6 +1344,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--trending-news-url", default=DEFAULT_TRENDING_NEWS_URL)
     parser.add_argument("--macro-news-url", default=DEFAULT_MACRO_NEWS_URL)
     parser.add_argument("--youtube-url", default=DEFAULT_YOUTUBE_URL)
+    parser.add_argument("--tweets-url", default=DEFAULT_TWEETS_URL)
     parser.add_argument(
         "--edition-api",
         default=DEFAULT_EDITION_API,
@@ -1330,10 +1385,25 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None) -> P
         )
         # 트렌딩 집계를 카드 후보 선별보다 먼저 돌린다 — 그날 여러 매체가 동시에
         # 다룬 사건이 무엇인지 알아야 후보 40 자리를 그쪽에 먼저 줄 수 있다.
+        # X 보강. macro 피드와 같은 취지로 실패해도 수집을 막지 않는다 — 피드 하나
+        # 때문에 06:00 배치가 죽으면 손해가 훨씬 크다.
+        try:
+            tweets_payload = fetch_json(client, args.tweets_url, "my-news(tweets)")
+            tweets_raw = (
+                tweets_payload["items"]
+                if isinstance(tweets_payload, dict)
+                else tweets_payload
+            )
+        except (httpx.HTTPError, SystemExit, KeyError, TypeError) as exc:
+            print(f"경고: X 피드를 못 읽어 건너뛴다 ({exc!r})", file=sys.stderr)
+            tweets_raw = []
         trending_news = trending_pool_news(trending_news_raw, window_end_utc)
         trending_videos = trending_pool_videos(yt_raw, window_end_utc)
-        trending_candidates = rank_topics(trending_news, trending_videos, window_end_utc)
-        trending_corpus = corpus_summary(trending_news, trending_videos)
+        trending_tweets = trending_pool_tweets(tweets_raw, window_end_utc)
+        trending_candidates = rank_topics(
+            trending_news, trending_videos, window_end_utc, trending_tweets
+        )
+        trending_corpus = corpus_summary(trending_news, trending_videos, trending_tweets)
         hot_urls = trending_article_urls(trending_candidates)
         # 후보 이미지 해시도 같은 클라이언트·캐시로 계산한다. filter_news 는 URL 만
         # 넘기므로 클로저로 묶어 둔다.
