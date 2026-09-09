@@ -122,11 +122,29 @@ def _request_origin(request: Request) -> str:
     return f"{scheme}://{host}"
 
 
+def og_image_public_url(origin: str, date_iso: str, content: dict[str, Any]) -> str:
+    """공유 미리보기가 가리킬 이미지 주소. 원본이 바뀌면 주소도 바뀐다.
+
+    `?v=<지문>`을 붙이는 이유는 서버 바깥의 캐시 때문이다. 서버 파일 캐시는
+    `og_cache_path`가 지문으로 갈라 주지만, 주소가 날짜뿐이면 그 앞단이 전부 옛
+    그림을 붙들고 있다 — Cloudflare 엣지는 max-age 4시간 동안 HIT를 내주고,
+    카카오톡·트위터 같은 SNS는 URL 단위로 미리보기를 캐싱해서 서버를 아무리 고쳐도
+    같은 주소면 다시 가져가지 않는다. 주소를 바꾸면 양쪽 다 새로 받는다.
+
+    지문 대상이 없으면(카드에 이미지가 없는 날) 쿼리 없이 돌려준다 — 어차피
+    이미지 엔드포인트가 404를 내므로 붙일 값이 없다."""
+    source_url = resolve_og_image_url(content)
+    base = f"{origin}/api/og/{date_iso}/image.jpg"
+    if not source_url:
+        return base
+    return f"{base}?v={source_fingerprint(source_url)}"
+
+
 def render_og_html(content: dict[str, Any], date_iso: str, request: Request) -> str:
     origin = _request_origin(request)
     title = html.escape(f"{content['meta']['title']} · 데일리 비트코인")
     description = html.escape(build_og_description(content))
-    image_url = html.escape(f"{origin}/api/og/{date_iso}/image.jpg")
+    image_url = html.escape(og_image_public_url(origin, date_iso, content))
     page_url = html.escape(f"{origin}/d/{date_iso}")
 
     return f"""<!doctype html>

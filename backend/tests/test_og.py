@@ -7,6 +7,7 @@ from test_routes import reference_payload, seed_edition
 
 from app.config import Settings, get_settings
 from app.models import Edition
+from app.og import source_fingerprint
 
 
 def _fake_source_image_bytes(size: tuple[int, int] = (300, 200)) -> bytes:
@@ -208,8 +209,38 @@ def test_og_html_contains_meta_tags(client) -> None:
     assert 'property="og:title" content="비트코인 하이라이트' in body
     assert '데일리 비트코인" />' in body
     assert 'property="og:description"' in body
-    assert 'property="og:image" content="http://testserver/api/og/2026-07-30/image.jpg"' in body
+    expected_image = (
+        "http://testserver/api/og/2026-07-30/image.jpg"
+        f"?v={source_fingerprint('https://example.com/thumb.jpg')}"
+    )
+    assert f'property="og:image" content="{expected_image}"' in body
+    assert f'name="twitter:image" content="{expected_image}"' in body
     assert 'property="og:url" content="http://testserver/d/2026-07-30"' in body
+
+
+def test_og_html_image_url_changes_with_thumbnail(client) -> None:
+    """썸네일을 바꾸면 og:image 주소도 달라진다 — 엣지/SNS 캐시가 새로 받도록."""
+    before = _payload_with_image_url("2026-07-30")
+    seed_edition(client.session_factory, before)
+    first = client.get("/api/og/2026-07-30").text
+
+    after = _payload_with_image_url("2026-07-30")
+    after["meta"]["og_image"] = "https://example.com/other.jpg"
+    _republish(client.session_factory, after)
+    second = client.get("/api/og/2026-07-30").text
+
+    assert source_fingerprint("https://example.com/thumb.jpg") in first
+    assert source_fingerprint("https://example.com/other.jpg") in second
+    assert first != second
+
+
+def test_og_html_image_url_has_no_version_without_source(client) -> None:
+    """카드에 이미지가 없는 날은 붙일 지문이 없으므로 쿼리 없이 나간다."""
+    seed_edition(client.session_factory, _payload_with_image_url("2026-07-30", url=None))
+
+    body = client.get("/api/og/2026-07-30").text
+
+    assert 'property="og:image" content="http://testserver/api/og/2026-07-30/image.jpg"' in body
 
 
 def test_og_html_missing_date_returns_404(client) -> None:
