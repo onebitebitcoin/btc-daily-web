@@ -44,18 +44,23 @@ from app.quotes import as_cover_quote, is_exhausted, load_pool, pick_quote  # no
 from app.trending import rank_topics  # noqa: E402  (sys.path 조정 후여야 함)
 from scripts.recent_editions import fetch_dates, fetch_edition  # noqa: E402
 
-DEFAULT_NEWS_URL = "http://localhost:8000/api/news?asset=btc&limit=500"
+# limit 이 500 이면 국내 소스가 컷에서 잘린다. my-news 는 published_at 순으로
+# 자르는데 구글 뉴스 경유 기사는 게시 시각이 며칠 전인 경우가 흔해서, 방금
+# 수집한 기사도 뒤로 밀린다(2026-09-10 실측: krmarket 이 limit 500 에서 7건,
+# 1000 에서 12건). 창 필터는 crawled_at 기준이라 창은 통과하는데 API 컷에서
+# 사라지는 것이라, limit 을 올리는 것 말고 방법이 없다.
+DEFAULT_NEWS_URL = "http://localhost:8000/api/news?asset=btc&limit=1000"
 # 트렌딩 집계는 카드 후보와 목적이 다르다 — 카드는 "쓸 만한 10건"을 고르지만
 # 집계는 24시간에 무슨 일이 있었는지 전부 봐야 한다. 같은 소스를 따로, 넓게 받는다
 # (2026-08-05 실측: 24h 코퍼스 205건인데 카드 후보 필터를 거치면 20건만 남았다).
-DEFAULT_TRENDING_NEWS_URL = "http://localhost:8000/api/news?asset=btc&limit=500"
+DEFAULT_TRENDING_NEWS_URL = "http://localhost:8000/api/news?asset=btc&limit=1000"
 # 매크로 보강 풀. my-news 의 asset=btc 는 달러·금리·연준 기사를 상당수 놓친다
 # (2026-08-24 실측: 워시 첫 잭슨홀 연설, 연준의 10년 초과 국채 1.62조달러 보유,
 # 빅테크 회사채가 국채금리를 밀어올린 건이 전부 asset=btc 밖에 있었다).
 # 그래서 asset 필터 없이 한 번 더 받되 **macro 등급만** 취한다 — 이 피드는 AI·일반
 # 뉴스가 대부분이고, 그중 일부는 내용과 무관한 tags:['bitcoin'] 이 붙어 있어
 # 그대로 두면 야구 기사가 btc 등급으로 샌다(실측). 등급 제한이 그 방어선이다.
-DEFAULT_MACRO_NEWS_URL = "http://localhost:8000/api/news?limit=500"
+DEFAULT_MACRO_NEWS_URL = "http://localhost:8000/api/news?limit=1000"
 # X(트위터) 집계 풀. `/api/tweets` 는 limit 파라미터가 없어 4만9천건 38MB 를 통째로
 # 주므로 쓰지 않는다. `/api/feed` 는 limit 으로 자를 수 있고, 2000 이면 24시간 창을
 # 덮고도 남는다(2026-09-10 실측: 2000건 중 24h 이내 683건 313계정).
@@ -309,7 +314,10 @@ DOMESTIC_TERMS = (
     "韓",
     "국내",
     "원화",
+    #  매체마다 붙여 쓰기도 하고 띄어 쓰기도 한다. 붙인 표기만 두면 절반을 놓친다
+    #  (2026-09-10 실측: 국내 시장 소스 15건 중 4건이 "김치 프리미엄" 표기였다).
     "김치프리미엄",
+    "김치 프리미엄",
     "업비트",
     "빗썸",
     "코인원",
