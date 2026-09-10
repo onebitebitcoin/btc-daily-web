@@ -359,3 +359,12 @@ def test_rank_topics_narrows_the_pool_before_matching_titles() -> None:
     result = rank_topics(many, [], NOW)
 
     assert len({r["topic"] for r in result}) == 15
+
+
+def test_english_source_tags_are_stopwords_too() -> None:
+    """auto_interested 소스는 분류기를 건너뛰어 영문 태그가 그대로 남는다."""
+    items = [make_news(["bitcoin", "crypto", "#클래리티"], source_ref="매체A")]
+
+    result = rank_topics(items, [], NOW)
+
+    assert [r["topic"] for r in result] == ["클래리티 법안"]

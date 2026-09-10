@@ -24,6 +24,11 @@ KST = ZoneInfo("Asia/Seoul")
 STOPWORDS: set[str] = {
     "비트코인",
     "btc",
+    #  영문 태그도 막는다. my-news 의 auto_interested 소스는 분류기를 건너뛰어
+    #  fetcher 의 영문 태그(["bitcoin","crypto"])가 그대로 남는데, 이 둘이 빠져
+    #  있으면 "bitcoin" 이 매체 18곳짜리 트렌딩 1위 토픽이 된다(2026-09-10 실측).
+    "bitcoin",
+    "crypto",
     "암호화폐",
     "가상자산",
     "코인",
