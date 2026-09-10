@@ -99,6 +99,11 @@ class Card(_Strict):
     link: Link | None = None
     media: Media | None = None
     qa: list[QA] | None = None
+    #  링크한 기사가 나온 시각. 카드에 "N시간 전"으로 조판된다. 데일리 카드뉴스는
+    #  24시간 안의 소식으로 만들지만(collect_daily.NEWS_MAX_AGE_HOURS), 그 사실은
+    #  독자에게 안 보인다 — 카드마다 얼마나 새 소식인지 드러내려고 싣는다.
+    #  이 필드 없이 나간 과거 발행분이 있으므로 optional 이어야 한다.
+    published_at: datetime.datetime | None = None
 
 
 class Closing(_Strict):

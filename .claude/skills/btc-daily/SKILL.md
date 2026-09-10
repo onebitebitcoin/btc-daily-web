@@ -200,6 +200,7 @@ python scripts/recent_editions.py --api https://daily.onebitebitcoin.com
 | `quote` | 한 줄 촌철살인, **했습니다체**. 없으면 `null` (전부 채우지 말 것 — 8~9개 정도) |
 | `link` | `{label: "<매체명> 원문", href: 후보의 url}` |
 | `media` | `{image: ..., href: null, cta: null}`. 고르는 순서는 `CONTENT_CONTRACT.md` **4.0절**을 따른다 — 후보의 `image_url`은 정답이 아니라 3순위다. 이미지 없으면 `media: null` |
+| `published_at` | **후보의 `published_at`을 그대로 옮긴다.** 카드에 "3시간 전"으로 조판된다. 빼먹으면 그 카드만 시각이 안 보인다 |
 
 작성 규칙:
 - **`body`·`quote`는 했습니다체**, `title`은 **명사형 종결** 헤드라인. `CONTENT_CONTRACT.md` 2.1·2.1.1절.

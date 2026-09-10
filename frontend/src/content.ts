@@ -37,6 +37,9 @@ export interface Card {
   link: { label: string; href: string } | null;
   media: { image: string; href: string | null; cta: string | null } | null;
   qa?: { question: string; answer: string; sources: string[] }[] | null;
+  // 링크한 기사가 나온 시각(ISO). 카드에 "N시간 전"으로 표시한다.
+  // 이 필드 없이 나간 발행분이 있어 optional 이다.
+  published_at?: string | null;
 }
 
 export interface Closing {
