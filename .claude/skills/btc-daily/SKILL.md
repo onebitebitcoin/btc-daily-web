@@ -49,7 +49,12 @@ cd backend && source .venv/bin/activate && python scripts/collect_daily.py
     출처가 확인된 `backend/app/data/austrian_quotes.json` 풀에서만 나온다.
     (인용구는 오귀속이 흔해서, 지어내면 미제스가 하지 않은 말이 발행된다.)
     stderr에 "인용구 풀을 한 바퀴 다 돌았다"가 뜨면 그 사실을 보고에 적어라.
-- `candidates.news[]` — 최근 **36h** 비트코인 기사 최대 100건. 관련도 등급(`relevance`)
+- `candidates.news[]` — **게시된 지 24시간 안**인 비트코인 기사 최대 100건.
+  **데일리 카드뉴스는 24시간 내 소식으로 발행한다** — 수집기가 `NEWS_MAX_AGE_HOURS`
+  로 이미 걸러 주지만, 후보에 남아 있어도 어제 소식으로 읽히는 기사는 네가 뺀다.
+  (창 자체는 수집 시각 기준 36h 다. 창만으로는 부족해서 게시 시각 게이트를 따로
+  둔다 — 구글 뉴스 검색 피드가 몇 주 전 기사를 같이 주기 때문이다. 2026-09-10
+  사고: 9월 3일자 기사가 그날 카드 8번으로 나갔다.) 관련도 등급(`relevance`)
   → 화제성 → 최신순으로 정렬돼 있다. 3.0절이 이 등급을 쓴다.
   `url`은 **매체 원문 주소**다. my-news 의 가상자산 정책 소스(`cryptopolicy`)가
   googlenews 경유로 들어오는데(`news.google.com/rss/articles/...`) 수집기가 원문으로

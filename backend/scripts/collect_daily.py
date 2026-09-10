@@ -76,6 +76,17 @@ DEFAULT_EDITION_API = "https://daily.onebitebitcoin.com"
 # 2026-08-24 실측: 24h 는 btc 등급 69건인데 36h 로 늘리면 108건이 된다.
 # 영상 창(VIDEO_WINDOW_HOURS)이 이미 48h 인 것과 같은 취지다.
 NEWS_WINDOW_HOURS = 36
+# 기사 자체의 나이 상한. **데일리 카드뉴스는 24시간 안에 나온 소식으로 만든다** —
+# 편집 원칙이지 튜닝값이 아니므로 후보를 늘리려고 올리지 마라.
+#
+# 창(NEWS_WINDOW_HOURS)만으로는 이걸 보장하지 못한다. 창은 crawled_at 기준이라
+# "우리가 언제 봤나"만 재는데, 구글 뉴스 검색 피드는 질의에 맞으면 몇 주 전 기사도
+# 같이 준다. 그래서 8월 기사가 오늘 수집되면 36h 창을 그대로 통과해 오늘자 카드
+# 후보가 됐다(2026-09-10 사고: 9월 3일자 김치프리미엄 기사가 그날 카드로 나갔다).
+#
+# 24h 로 잘라도 물량은 충분하다 — 그날 후보 100건 중 74건이 남았다
+# (btc 54 / policy 11 / macro 9). 카드는 뉴스 8장이면 되므로 여유가 크다.
+NEWS_MAX_AGE_HOURS = 24
 # 후보 수. 2026-08-24 실측으로 20에서 올렸다 — 그날 24h 코퍼스 108건 중 20건만
 # 후보가 됐고, 잘려나간 88건 안에 그날 트렌딩 1위였던 CFTC 비트코인 무기한선물
 # 승인, 비트코인 코어 암호화 라우팅 재검토, 채굴사 IPO 가 전부 들어 있었다.
@@ -366,6 +377,43 @@ IMAGE_HASH_CACHE_PATH = BACKEND_ROOT / ".cache" / "imghash" / "cache.json"
 
 def _parse_dt(value: str) -> datetime.datetime:
     return datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _as_utc(value: str) -> datetime.datetime | None:
+    """문자열을 UTC aware datetime 으로. 못 읽으면 None.
+
+    my-news 의 published_at 은 tz 표기가 없는 경우가 많다(RSS 의 pubDate 를 파싱한
+    뒤 tzinfo 를 떼어 저장한다). 그런 값은 UTC 로 간주한다 — 대부분의 피드가 GMT 로
+    쓰기 때문이다. +0900 으로 쓰는 피드가 섞이면 최대 9시간 어긋나는데, 비트코인
+    후보에서는 실측으로 그런 항목이 없었다(2026-09-10: 후보 100건 중 published_at 이
+    crawled_at 보다 뒤인 건이 0건 — 뒤로 나오면 타임존을 잘못 붙였다는 뜻이다).
+    어긋난 소스가 생기면 그 소스의 기사가 하루 일찍 잘려나가므로, 후보가 갑자기
+    줄면 여기부터 확인한다.
+    """
+    if not value:
+        return None
+    try:
+        parsed = _parse_dt(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=datetime.UTC)
+    return parsed.astimezone(datetime.UTC)
+
+
+def is_stale(news: dict[str, Any], now: datetime.datetime) -> bool:
+    """기사가 NEWS_MAX_AGE_HOURS 보다 오래됐는가.
+
+    published_at 이 없거나 못 읽으면 **오래되지 않은 것으로 본다** — 판정 근거가
+    없다고 후보에서 빼면, 시각 표기가 특이한 소스가 통째로 사라진다. 이 함수는
+    창(crawled_at)을 이미 통과한 항목에만 걸리는 추가 게이트다.
+
+    미래로 찍힌 값도 통과시킨다. 타임존을 잘못 붙인 것이지 오래된 기사가 아니다.
+    """
+    published = _as_utc(str(news.get("published_at") or ""))
+    if published is None:
+        return False
+    return (now - published) > datetime.timedelta(hours=NEWS_MAX_AGE_HOURS)
 
 
 # ---- 이미지 중복배제: average hash ----
@@ -914,6 +962,10 @@ def filter_news(
     (=미국 장중)에 기사가 몰리면 그 시간대가 상위를 독차지해, 카드 후보가 하루
     24시간 중 평균 27%(최악 9%)밖에 못 덮었다(2026-08-18 진단).
 
+    **기사 나이(창과 별개의 게이트).** 창은 crawled_at 기준이라 "우리가 언제 봤나"만
+    잰다. 구글 뉴스 검색 피드가 몇 주 전 기사를 같이 주므로, 게시 시각이
+    NEWS_MAX_AGE_HOURS 를 넘긴 기사는 `is_stale` 로 따로 뗀다.
+
     **국내(등급과 직교하는 축).** 국내 기사는 등급 안에서 먼저 오고, DOMESTIC_RESERVE
     만큼은 등급별 몫과 별개로 자리를 확보한다. 판정은 `classify_domestic` — 매체
     국적이 아니라 제목 내용 기준이다. 2026-09-10 진단: 36h 코퍼스 260건 중 국내
@@ -948,7 +1000,9 @@ def filter_news(
     fresh = [
         {**n, "relevance": classify_relevance(n), "domestic": classify_domestic(n)}
         for n in items
-        if not n.get("is_duplicate") and _parse_dt(n["crawled_at"]) >= cutoff
+        if not n.get("is_duplicate")
+        and _parse_dt(n["crawled_at"]) >= cutoff
+        and not is_stale(n, now)
     ]
 
     # 국내 기사부터 DOMESTIC_RESERVE 만큼 확보한다. 등급 축과 직교하므로 등급별
@@ -1096,7 +1150,13 @@ def trending_pool_news(items: list[dict[str, Any]], now: datetime.datetime) -> l
     2. 상위 20건으로 자른다. "가장 핫한 토픽"은 그날 전체를 봐야 나온다.
     """
     cutoff = now - datetime.timedelta(hours=24)
-    return [n for n in items if n.get("crawled_at") and _parse_dt(n["crawled_at"]) >= cutoff]
+    return [
+        n
+        for n in items
+        if n.get("crawled_at")
+        and _parse_dt(n["crawled_at"]) >= cutoff
+        and not is_stale(n, now)
+    ]
 
 
 def trending_pool_videos(

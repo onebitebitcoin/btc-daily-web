@@ -1906,3 +1906,74 @@ def test_filter_news_does_not_duplicate_a_reserved_domestic_article() -> None:
     result = collect_daily.filter_news(items, NOW)
 
     assert len(result) == 1
+
+
+# ---- collect_daily.is_stale (창은 crawled_at, 이 게이트는 published_at) ----
+
+
+def test_is_stale_rejects_an_article_published_long_ago() -> None:
+    """구글 뉴스 검색 피드는 질의에 맞으면 몇 주 전 기사도 같이 준다."""
+    old = make_news(published_at="2026-07-24T02:00:00")  # NOW 기준 7일 전
+
+    assert collect_daily.is_stale(old, NOW)
+
+
+def test_is_stale_keeps_a_fresh_article() -> None:
+    assert not collect_daily.is_stale(make_news(published_at="2026-07-30T12:00:00"), NOW)
+
+
+def test_is_stale_keeps_articles_without_a_publish_time() -> None:
+    """판정 근거가 없다고 빼면 시각 표기가 특이한 소스가 통째로 사라진다."""
+    assert not collect_daily.is_stale(make_news(), NOW)
+    assert not collect_daily.is_stale(make_news(published_at="어제"), NOW)
+
+
+def test_is_stale_keeps_future_timestamps() -> None:
+    """미래로 찍힌 값은 타임존을 잘못 붙인 것이지 오래된 기사가 아니다."""
+    assert not collect_daily.is_stale(make_news(published_at="2026-08-05T00:00:00"), NOW)
+
+
+def test_is_stale_treats_a_naive_timestamp_as_utc() -> None:
+    """my-news의 published_at은 tz 표기가 없는 경우가 많다 — UTC로 읽는다."""
+    assert collect_daily.is_stale(make_news(published_at="2026-07-30T02:00:00"), NOW)  # 25h 전
+    assert not collect_daily.is_stale(make_news(published_at="2026-07-30T04:00:00"), NOW)  # 23h 전
+
+
+def test_daily_cards_are_built_from_the_last_24_hours() -> None:
+    """편집 원칙: 데일리 카드뉴스는 24시간 안에 나온 소식으로 만든다.
+
+    후보를 늘리려고 이 값을 올리면 어제 소식이 오늘 카드로 나간다.
+    """
+    assert collect_daily.NEWS_MAX_AGE_HOURS == 24
+
+
+def test_filter_news_drops_articles_that_are_old_despite_a_fresh_crawl() -> None:
+    """8월 기사가 오늘 수집돼도 오늘자 후보가 되면 안 된다(2026-09-10 실측 사고)."""
+    items = [
+        make_news(
+            url="https://n/fresh",
+            title="비트코인 8만달러",
+            published_at="2026-07-30T12:00:00",
+        ),
+        make_news(
+            url="https://n/stale",
+            title="비트코인 7만달러",
+            published_at="2026-07-20T12:00:00",
+        ),
+    ]
+
+    result = collect_daily.filter_news(items, NOW)
+
+    assert [n["url"] for n in result] == ["https://n/fresh"]
+
+
+def test_trending_pool_news_drops_stale_articles_too() -> None:
+    """집계에 옛 기사가 섞이면 그날 화제성이 아닌 것이 순위에 오른다."""
+    items = [
+        make_news(url="https://n/fresh", published_at="2026-07-30T12:00:00"),
+        make_news(url="https://n/stale", published_at="2026-07-20T12:00:00"),
+    ]
+
+    result = collect_daily.trending_pool_news(items, NOW)
+
+    assert [n["url"] for n in result] == ["https://n/fresh"]
