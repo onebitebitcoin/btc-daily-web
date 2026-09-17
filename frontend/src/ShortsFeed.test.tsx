@@ -131,8 +131,12 @@ async function advance(container: HTMLElement, to: number) {
   // 이 이벤트가 없으므로 손으로 쏜다(아래 enableScrollEnd 참고).
   const track = container.querySelector('.feed-track');
   if (track) act(() => void track.dispatchEvent(new Event('scrollend')));
-  await waitFor(() =>
-    expect(container.querySelectorAll('.slide')[to]?.className).toContain('is-active'),
+  // 타임아웃을 기본(1000ms)보다 넉넉히 잡는다. scrollend 가 어떤 이유로든 유실되면
+  // 이동 잠금이 SETTLE_TIMEOUT_MS(700ms) 타이머로 풀리는데, 느린 CI 러너에서는 그
+  // 경로가 기본 타임아웃을 넘겨 간헐적으로 깨졌다.
+  await waitFor(
+    () => expect(container.querySelectorAll('.slide')[to]?.className).toContain('is-active'),
+    { timeout: 3000 },
   );
 }
 
