@@ -8,13 +8,14 @@ import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from PIL import Image
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import imgproxy
 from app.config import Settings, get_settings
 from app.db import get_db
-from app.models import Edition
+from app.models import CardLike, Edition
 from app.og import og_cache_path, og_image_bytes_to_jpeg, render_og_html, resolve_og_image_url
 from app.schemas import EditionContent
 
@@ -25,6 +26,8 @@ router = APIRouter(prefix="/api")
 EDITION_CACHE_CONTROL = "public, max-age=300, stale-while-revalidate=86400"
 # 변환 이미지는 원본 URL 해시가 캐시 키에 들어가므로 내용이 바뀌면 경로가 바뀐다.
 IMAGE_CACHE_CONTROL = "public, max-age=86400, stale-while-revalidate=604800"
+# 좋아요는 누르는 즉시 값이 달라져야 하므로 어디에도 담아두지 않는다.
+LIKES_CACHE_CONTROL = "no-store"
 
 
 def etag_matches(if_none_match: str | None, etag: str) -> bool:
@@ -86,10 +89,77 @@ def list_editions(request: Request, db: Session = Depends(get_db)) -> Response:
 def get_edition(
     date: datetime.date, request: Request, db: Session = Depends(get_db)
 ) -> Response:
+    edition = edition_or_404(db, date)
+    return json_with_etag(request, edition.content, EDITION_CACHE_CONTROL)
+
+
+def edition_or_404(db: Session, date: datetime.date) -> Edition:
     edition = db.get(Edition, date)
     if edition is None:
         raise HTTPException(status_code=404, detail=f"no edition for date {date.isoformat()}")
-    return json_with_etag(request, edition.content, EDITION_CACHE_CONTROL)
+    return edition
+
+
+def has_card(content: dict[str, Any], num: int) -> bool:
+    return any(card.get("num") == num for card in content.get("cards") or [])
+
+
+def adjust_like(db: Session, date: datetime.date, num: int, delta: int) -> int:
+    """좋아요 수를 delta 만큼 옮기고 결과 수치를 돌려준다.
+
+    현재 값을 읽어 더한 뒤 쓰는 방식은 요청이 겹칠 때 한쪽이 묻힌다. 그래서
+    `count = count + delta` 형태의 UPDATE 로 데이터베이스가 직접 더하게 한다.
+
+    감소는 WHERE 에 `count > 0` 을 걸어 음수로 내려가지 않게 막는다. 조건에 걸리는
+    행이 없으면 갱신 건수가 0 이고, 그 경우 이미 0 이므로 그대로 두면 된다.
+    """
+    condition = [CardLike.date == date, CardLike.card_num == num]
+    if delta < 0:
+        condition.append(CardLike.count > 0)
+    bump = update(CardLike).where(*condition).values(count=CardLike.count + delta)
+    updated = db.execute(bump).rowcount
+
+    if updated == 0 and delta > 0:
+        # 아직 아무도 안 누른 카드다. 같은 순간 다른 요청이 행을 먼저 만들었으면
+        # 기본키 충돌이 나므로, 되돌리고 UPDATE 를 한 번 더 돌린다.
+        try:
+            db.add(CardLike(date=date, card_num=num, count=delta))
+            db.flush()
+        except IntegrityError:
+            db.rollback()
+            db.execute(bump)
+
+    db.commit()
+    row = db.get(CardLike, (date, num))
+    return row.count if row is not None else 0
+
+
+def likes_response(payload: dict[str, Any]) -> JSONResponse:
+    return JSONResponse(payload, headers={"Cache-Control": LIKES_CACHE_CONTROL})
+
+
+@router.get("/editions/{date}/likes")
+def get_edition_likes(date: datetime.date, db: Session = Depends(get_db)) -> Response:
+    """그 날짜 카드들의 좋아요 수. 아무도 안 누른 카드는 키 자체가 없다."""
+    edition_or_404(db, date)
+    rows = db.scalars(select(CardLike).where(CardLike.date == date)).all()
+    return likes_response({str(row.card_num): row.count for row in rows})
+
+
+@router.post("/editions/{date}/cards/{num}/like")
+def like_card(date: datetime.date, num: int, db: Session = Depends(get_db)) -> Response:
+    edition = edition_or_404(db, date)
+    if not has_card(edition.content, num):
+        raise HTTPException(status_code=404, detail=f"no card {num} on {date.isoformat()}")
+    return likes_response({"num": num, "count": adjust_like(db, date, num, 1)})
+
+
+@router.delete("/editions/{date}/cards/{num}/like")
+def unlike_card(date: datetime.date, num: int, db: Session = Depends(get_db)) -> Response:
+    edition = edition_or_404(db, date)
+    if not has_card(edition.content, num):
+        raise HTTPException(status_code=404, detail=f"no card {num} on {date.isoformat()}")
+    return likes_response({"num": num, "count": adjust_like(db, date, num, -1)})
 
 
 @router.get("/img/{date}/{num}")

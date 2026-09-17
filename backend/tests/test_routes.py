@@ -404,3 +404,86 @@ def test_img_404_for_out_of_range_card_numbers(client, tmp_path, path: str) -> N
     override_img_cache_dir(client, tmp_path)
 
     assert client.get(path).status_code == 404
+
+
+# ---------- 카드 좋아요 ----------
+
+LIKE_DATE = "2026-07-30"
+
+
+def seed_reference_edition(client) -> None:
+    seed_edition(client.session_factory, reference_payload(LIKE_DATE))
+
+
+def like(client, num: int = 1):
+    return client.post(f"/api/editions/{LIKE_DATE}/cards/{num}/like")
+
+
+def unlike(client, num: int = 1):
+    return client.delete(f"/api/editions/{LIKE_DATE}/cards/{num}/like")
+
+
+def test_likes_start_empty(client) -> None:
+    seed_reference_edition(client)
+
+    response = client.get(f"/api/editions/{LIKE_DATE}/likes")
+
+    assert response.status_code == 200
+    assert response.json() == {}
+
+
+def test_like_creates_then_increments(client) -> None:
+    seed_reference_edition(client)
+
+    assert like(client).json() == {"num": 1, "count": 1}
+    assert like(client).json() == {"num": 1, "count": 2}
+    assert client.get(f"/api/editions/{LIKE_DATE}/likes").json() == {"1": 2}
+
+
+def test_unlike_decrements(client) -> None:
+    seed_reference_edition(client)
+    like(client)
+    like(client)
+
+    assert unlike(client).json() == {"num": 1, "count": 1}
+
+
+def test_unlike_never_goes_below_zero(client) -> None:
+    """아무도 안 누른 카드를 취소해도 음수가 되지 않는다.
+
+    localStorage 가 비워진 브라우저에서 취소 요청만 날아오는 경우가 실제로 생긴다.
+    """
+    seed_reference_edition(client)
+
+    assert unlike(client).json() == {"num": 1, "count": 0}
+    assert unlike(client).json() == {"num": 1, "count": 0}
+
+
+def test_likes_are_counted_per_card(client) -> None:
+    seed_reference_edition(client)
+    like(client, 1)
+    like(client, 3)
+    like(client, 3)
+
+    assert client.get(f"/api/editions/{LIKE_DATE}/likes").json() == {"1": 1, "3": 2}
+
+
+def test_likes_are_not_cached(client) -> None:
+    # 누르는 즉시 값이 달라져야 하므로 중간 캐시에 담기면 안 된다.
+    seed_reference_edition(client)
+
+    assert client.get(f"/api/editions/{LIKE_DATE}/likes").headers["cache-control"] == "no-store"
+    assert like(client).headers["cache-control"] == "no-store"
+
+
+@pytest.mark.parametrize("num", [0, 11, 99])
+def test_like_404_for_card_not_in_edition(client, num: int) -> None:
+    seed_reference_edition(client)
+
+    assert like(client, num).status_code == 404
+    assert unlike(client, num).status_code == 404
+
+
+def test_like_404_for_unknown_date(client) -> None:
+    assert client.post("/api/editions/2000-01-01/cards/1/like").status_code == 404
+    assert client.get("/api/editions/2000-01-01/likes").status_code == 404
