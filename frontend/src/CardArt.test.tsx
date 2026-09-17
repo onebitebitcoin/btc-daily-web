@@ -100,6 +100,10 @@ describe('CardArt 대체 아트', () => {
         isActive
         shouldLoadImage
         onOpenDetail={() => {}}
+        likeCount={0}
+        liked={false}
+        onToggleLike={() => {}}
+        onShare={() => {}}
       />,
     );
 
@@ -123,6 +127,10 @@ describe('CardArt 대체 아트', () => {
         isActive
         shouldLoadImage
         onOpenDetail={() => {}}
+        likeCount={0}
+        liked={false}
+        onToggleLike={() => {}}
+        onShare={() => {}}
       />,
     );
 

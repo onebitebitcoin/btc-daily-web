@@ -8,10 +8,10 @@ export interface EditionSummary {
 
 export class NotFoundError extends Error {}
 
-async function request<T>(path: string): Promise<T> {
+async function request<T>(path: string, method = 'GET'): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(path);
+    res = await fetch(path, method === 'GET' ? undefined : { method });
   } catch {
     throw new Error('서버에 연결할 수 없습니다.');
   }
@@ -26,6 +26,26 @@ export function fetchEditions(): Promise<EditionSummary[]> {
 
 export function fetchEdition(date: string): Promise<EditionContent> {
   return request(`/api/editions/${date}`);
+}
+
+/** 카드 번호(`card.num`)를 키로 한 좋아요 수. 아무도 안 누른 카드는 키가 없다. */
+export type CardLikeCounts = Record<string, number>;
+
+export interface CardLikeResult {
+  num: number;
+  count: number;
+}
+
+export function fetchLikes(date: string): Promise<CardLikeCounts> {
+  return request(`/api/editions/${date}/likes`);
+}
+
+export function likeCard(date: string, num: number): Promise<CardLikeResult> {
+  return request(`/api/editions/${date}/cards/${num}/like`, 'POST');
+}
+
+export function unlikeCard(date: string, num: number): Promise<CardLikeResult> {
+  return request(`/api/editions/${date}/cards/${num}/like`, 'DELETE');
 }
 
 export function errorMessage(err: unknown): string {

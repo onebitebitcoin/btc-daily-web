@@ -9,9 +9,11 @@ import { CoverSlide } from './slides/CoverSlide';
 import { ErrorSlide } from './slides/ErrorSlide';
 import { TrendingSheet } from './TrendingSheet';
 import { TrendingSlide } from './slides/TrendingSlide';
+import { useCardLikes, likeKey } from './useCardLikes';
 import { useEditionQueue } from './useEditionQueue';
 import { useThemeVars, type Theme } from './useThemeVars';
 import { useVerticalFeed } from './useVerticalFeed';
+import { shareCard } from './share';
 import { bundledMedia } from './media';
 import type { Card, EditionContent, TrendingItem } from './content';
 import './feed.css';
@@ -22,6 +24,8 @@ import './feedNav.css';
 const IMAGE_WINDOW = 2;
 /** 끝에서 이만큼 남으면 다음 날짜를 붙인다 — 클로징에서 빈 화면이 뜨지 않도록. */
 const APPEND_AHEAD = 2;
+/** 공유·좋아요 결과 안내가 떠 있는 시간(ms). */
+const NOTICE_MS = 2200;
 
 const EMPTY_THEME: Theme = {};
 
@@ -125,6 +129,46 @@ export function ShortsFeed({ startDate, startIndex }: ShortsFeedProps) {
   // 시트가 떠 있는 동안은 뒤 피드가 움직이면 안 된다 — 어느 시트든 마찬가지다.
   const sheetOpen = sheetCard !== null || sheetTopic !== null;
   const { current, trackRef, goTo, prev, next } = useVerticalFeed(slides.length, sheetOpen);
+
+  const feedDates = useMemo(() => entries.map((e) => e.date), [entries]);
+  const {
+    counts: likeCounts,
+    mine: likedKeys,
+    error: likeError,
+    toggle: toggleLike,
+    clearError: clearLikeError,
+  } = useCardLikes(feedDates);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  // 안내는 잠깐 떴다 사라진다. 다음 안내가 오면 타이머를 다시 잡아야 앞의 것이
+  // 뒤엣것까지 함께 지우지 않는다.
+  useEffect(() => {
+    if (notice === null) return;
+    const timer = setTimeout(() => setNotice(null), NOTICE_MS);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
+  // 좋아요가 실패하면 훅이 수치를 되돌리고 사유를 넘겨준다. 그대로 알린다.
+  useEffect(() => {
+    if (likeError === null) return;
+    setNotice(likeError);
+    clearLikeError();
+  }, [likeError, clearLikeError]);
+
+  const shareSlide = useCallback(
+    async (slide: FeedSlide) => {
+      const result = await shareCard({
+        date: slide.date,
+        // 공유 주소의 index 는 카드 번호가 아니라 에디션 안의 슬라이드 위치다.
+        index: slide.localIndex,
+        title: slide.card?.title ?? slide.content?.meta?.title ?? '데일리 비트코인',
+      });
+      if (result.kind === 'copied') setNotice('링크를 복사했습니다.');
+      else if (result.kind === 'failed') setNotice(result.message);
+      // 'shared' 는 공유 시트가 이미 결과를 보여줬고, 'cancelled' 는 사용자가 닫은 것이다.
+    },
+    [],
+  );
 
   const currentSlide = slides[current];
   const theme = currentSlide?.content?.theme ?? EMPTY_THEME;
@@ -236,6 +280,7 @@ export function ShortsFeed({ startDate, startIndex }: ShortsFeedProps) {
               />
             );
           }
+          const key = likeKey(slide.date, slide.card!.num);
           return (
             <CardSlide
               key={slide.key}
@@ -246,6 +291,10 @@ export function ShortsFeed({ startDate, startIndex }: ShortsFeedProps) {
               isActive={isActive}
               shouldLoadImage={shouldLoadImage}
               onOpenDetail={() => setSheetCard(slide.card)}
+              likeCount={likeCounts[key] ?? 0}
+              liked={likedKeys.has(key)}
+              onToggleLike={() => toggleLike(slide.date, slide.card!.num)}
+              onShare={() => shareSlide(slide)}
             />
           );
         })}
@@ -253,6 +302,12 @@ export function ShortsFeed({ startDate, startIndex }: ShortsFeedProps) {
 
       {cappedByLimit && (
         <p className="feed-error">더 이전 날짜는 위쪽 날짜 칩의 달력에서 골라주세요.</p>
+      )}
+
+      {notice && (
+        <p className="feed-notice" role="status">
+          {notice}
+        </p>
       )}
 
       <DetailSheet card={sheetCard} onClose={() => setSheetCard(null)} />
