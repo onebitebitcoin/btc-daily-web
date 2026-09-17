@@ -9,15 +9,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  */
 const SETTLE_TIMEOUT_MS = 700;
 
-/** 스와이프로 시작된 스냅이 도는 동안 새 터치를 받지 않는 시간의 상한(ms).
- *
- *  `scrollend` 를 지원하는 브라우저에서는 스크롤이 멎는 즉시 풀리므로 이 값까지
- *  가지 않는다. 미지원 브라우저와, 스크롤이 아예 일어나지 않아 `scrollend` 가 오지
- *  않는 경우(끝 슬라이드에서 더 밀었을 때)를 위한 안전장치다 — 없으면 잠금이 안 풀려
- *  스와이프가 통째로 죽는다.
- */
-const GESTURE_LOCK_MAX_MS = 600;
-
 /** 세로 스냅 피드의 현재 인덱스를 추적하고 이동시킨다.
  *
  *  슬라이드가 뒤로 계속 붙는(무한 피드) 구조라 `total`이 바뀔 때마다 관찰 대상을
@@ -139,49 +130,6 @@ export function useVerticalFeed(total: number, locked = false) {
     track.addEventListener('scrollend', onScrollEnd);
     return () => track.removeEventListener('scrollend', onScrollEnd);
   }, [total, clearSettle]);
-
-  // 스냅이 도는 동안에는 새 스와이프를 받지 않는다.
-  //
-  // 브라우저 네이티브 스냅은 애니메이션 도중에 손가락이 닿으면 그 자리에서 멈추고
-  // 손가락을 따라간다. 그러면 카드가 두 장 사이에 걸친 채로 서거나 의도하지 않은
-  // 카드로 넘어가서, 화면이 한 번에 어디로 갈지 예측할 수 없다.
-  //
-  // `touch-action: none` 을 잠깐 걸어 **새로 시작하는** 터치 제스처만 막는다. 이미
-  // 돌고 있는 스크롤은 터치 시작 시점에 이미 판정이 끝났으므로 그대로 완주한다.
-  // 스크롤을 `overflow: hidden` 으로 막으면 진행 중인 애니메이션까지 잘리므로 쓰지 않는다.
-  //
-  // `total` 을 의존성에 넣는 이유는 아래 scrollend 와 같다 — 트랙이 나중에 생긴다.
-  useEffect(() => {
-    const track = trackRef.current;
-    if (!track) return;
-
-    let unlockTimer: ReturnType<typeof setTimeout> | null = null;
-
-    const unlock = () => {
-      track.classList.remove('is-settling');
-      if (unlockTimer !== null) {
-        clearTimeout(unlockTimer);
-        unlockTimer = null;
-      }
-    };
-
-    const onTouchEnd = () => {
-      // 손을 뗀 순간부터 관성과 스냅이 돈다. 여기서부터 잠근다.
-      track.classList.add('is-settling');
-      if (unlockTimer !== null) clearTimeout(unlockTimer);
-      unlockTimer = setTimeout(unlock, GESTURE_LOCK_MAX_MS);
-    };
-
-    track.addEventListener('touchend', onTouchEnd, { passive: true });
-    track.addEventListener('touchcancel', onTouchEnd, { passive: true });
-    track.addEventListener('scrollend', unlock);
-    return () => {
-      unlock();
-      track.removeEventListener('touchend', onTouchEnd);
-      track.removeEventListener('touchcancel', onTouchEnd);
-      track.removeEventListener('scrollend', unlock);
-    };
-  }, [total]);
 
   useEffect(() => {
     const track = trackRef.current;

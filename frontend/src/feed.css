@@ -62,15 +62,6 @@ body {
 /* 시트가 열려 있는 동안 뒤 피드가 같이 움직이지 않게 잠근다. */
 .feed-track.is-locked { overflow: hidden; }
 
-/* 스와이프로 시작된 스냅이 도는 동안 새 터치 제스처를 받지 않는다.
-   (useVerticalFeed 의 GESTURE_LOCK_MAX_MS 주석 참고)
-
-   overflow 가 아니라 touch-action 을 쓰는 게 핵심이다. overflow: hidden 은 지금
-   돌고 있는 스냅 애니메이션까지 잘라버리는데, 여기서 막고 싶은 것은 새로 시작하는
-   제스처뿐이다. touch-action 은 터치가 시작될 때 판정되므로 진행 중인 스크롤은
-   그대로 완주한다. */
-.feed-track.is-settling { touch-action: none; }
-
 /* 슬라이드는 화면 한 칸이고, 그 안에 카드가 떠 있다. 위아래 여백은 크롬(진행바·
    상단바)이 앉을 자리이자 카드가 화면에 꽉 차지 않게 하는 여백이다. */
 .slide {
