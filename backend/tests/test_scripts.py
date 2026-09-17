@@ -1939,6 +1939,52 @@ def test_is_stale_treats_a_naive_timestamp_as_utc() -> None:
     assert not collect_daily.is_stale(make_news(published_at="2026-07-30T04:00:00"), NOW)  # 23h 전
 
 
+# ---- collect_daily.is_stale: 국내 기사 완화 창 ----
+
+
+def test_is_stale_gives_domestic_articles_a_longer_window() -> None:
+    """국내 기사는 DOMESTIC_MAX_AGE_HOURS 까지 남긴다.
+
+    창 안에 들어오는 국내 기사가 하루 한두 건뿐이라, 해외와 같은 24h 로 자르면
+    카드에 넣을 국내 후보가 아예 없는 날이 생긴다(2026-09-17 진단: 후보 100건 중
+    domestic 2건, 그나마 하나는 미국 하원 소식의 오판정이었다).
+    """
+    thirty_hours_ago = make_news(published_at="2026-07-29T21:00:00+00:00")
+    assert collect_daily.is_stale(thirty_hours_ago, NOW)
+    assert not collect_daily.is_stale(thirty_hours_ago, NOW, domestic=True)
+
+
+def test_is_stale_still_drops_domestic_articles_past_the_wider_window() -> None:
+    """완화는 이틀까지다 — 그 너머는 국내라도 오늘자 카드 소재가 아니다."""
+    forty_nine_hours_ago = make_news(published_at="2026-07-29T02:00:00+00:00")
+    assert collect_daily.is_stale(forty_nine_hours_ago, NOW, domestic=True)
+
+
+def test_filter_news_keeps_a_day_old_domestic_article() -> None:
+    """같은 나이여도 국내 기사만 후보로 남는다."""
+    domestic = make_news(
+        title="업비트 원화 마켓 거래대금 급증",
+        published_at="2026-07-29T21:00:00+00:00",
+    )
+    overseas = make_news(
+        title="Bitcoin ETF sees another outflow",
+        published_at="2026-07-29T21:00:00+00:00",
+    )
+    titles = [n["title"] for n in collect_daily.filter_news([domestic, overseas], NOW)]
+    assert "업비트 원화 마켓 거래대금 급증" in titles
+    assert "Bitcoin ETF sees another outflow" not in titles
+
+
+def test_trending_pool_news_keeps_24h_even_for_domestic_articles() -> None:
+    """트렌딩은 '24시간 화제성' 집계라 완화를 쓰지 않는다 — 어제 기사가 섞이면
+    오늘 순위가 왜곡된다."""
+    domestic = make_news(
+        title="업비트 원화 마켓 거래대금 급증",
+        published_at="2026-07-29T21:00:00+00:00",
+    )
+    assert collect_daily.trending_pool_news([domestic], NOW) == []
+
+
 def test_daily_cards_are_built_from_the_last_24_hours() -> None:
     """편집 원칙: 데일리 카드뉴스는 24시간 안에 나온 소식으로 만든다.
 

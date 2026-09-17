@@ -87,6 +87,17 @@ NEWS_WINDOW_HOURS = 36
 # 24h 로 잘라도 물량은 충분하다 — 그날 후보 100건 중 74건이 남았다
 # (btc 54 / policy 11 / macro 9). 카드는 뉴스 8장이면 되므로 여유가 크다.
 NEWS_MAX_AGE_HOURS = 24
+# 국내 기사만 쓰는 완화된 나이 상한. 위의 24h 원칙에 두는 예외다.
+#
+# 창 안에 들어오는 국내 기사는 하루 한두 건뿐이다(2026-09-17 실측: 후보 100건 중
+# domestic 2건, 그나마 하나는 "美 … 금융위 통과"를 국내로 본 오판정이었다). 해외와
+# 같은 잣대로 자르면 카드에 넣을 국내 후보가 아예 없는 날이 생긴다. 발행이 늦어진
+# 날은 더 심하다 — 그날은 사고로 06:00 대신 12:45 에 돌아, 국내 과세 기사 6건이
+# 전부 24h 밖으로 밀려났다.
+#
+# 이틀까지만 늘린다. 어제 이미 카드로 나간 소재는 3.1 중복 점검이 걸러내므로,
+# 창을 넓힌다고 같은 기사가 두 번 실리지는 않는다.
+DOMESTIC_MAX_AGE_HOURS = 48
 # 후보 수. 2026-08-24 실측으로 20에서 올렸다 — 그날 24h 코퍼스 108건 중 20건만
 # 후보가 됐고, 잘려나간 88건 안에 그날 트렌딩 1위였던 CFTC 비트코인 무기한선물
 # 승인, 비트코인 코어 암호화 라우팅 재검토, 채굴사 IPO 가 전부 들어 있었다.
@@ -406,8 +417,13 @@ def _as_utc(value: str) -> datetime.datetime | None:
     return parsed.astimezone(datetime.UTC)
 
 
-def is_stale(news: dict[str, Any], now: datetime.datetime) -> bool:
-    """기사가 NEWS_MAX_AGE_HOURS 보다 오래됐는가.
+def is_stale(
+    news: dict[str, Any], now: datetime.datetime, *, domestic: bool = False
+) -> bool:
+    """기사가 나이 상한보다 오래됐는가.
+
+    상한은 기본 NEWS_MAX_AGE_HOURS 이고, `domestic=True` 면 DOMESTIC_MAX_AGE_HOURS
+    를 쓴다. 트렌딩 집계처럼 24h 고정이어야 하는 곳은 기본값 그대로 부른다.
 
     published_at 이 없거나 못 읽으면 **오래되지 않은 것으로 본다** — 판정 근거가
     없다고 후보에서 빼면, 시각 표기가 특이한 소스가 통째로 사라진다. 이 함수는
@@ -418,7 +434,8 @@ def is_stale(news: dict[str, Any], now: datetime.datetime) -> bool:
     published = _as_utc(str(news.get("published_at") or ""))
     if published is None:
         return False
-    return (now - published) > datetime.timedelta(hours=NEWS_MAX_AGE_HOURS)
+    limit = DOMESTIC_MAX_AGE_HOURS if domestic else NEWS_MAX_AGE_HOURS
+    return (now - published) > datetime.timedelta(hours=limit)
 
 
 # ---- 이미지 중복배제: average hash ----
@@ -1002,13 +1019,13 @@ def filter_news(
     떨어져 나간 항목도 새 dict 로 돌려준다).
     """
     cutoff = now - datetime.timedelta(hours=NEWS_WINDOW_HOURS)
-    fresh = [
+    # 나이 게이트가 국내 여부에 따라 달라지므로, domestic 을 먼저 붙이고 그 값으로 건다.
+    tagged = (
         {**n, "relevance": classify_relevance(n), "domestic": classify_domestic(n)}
         for n in items
-        if not n.get("is_duplicate")
-        and _parse_dt(n["crawled_at"]) >= cutoff
-        and not is_stale(n, now)
-    ]
+        if not n.get("is_duplicate") and _parse_dt(n["crawled_at"]) >= cutoff
+    )
+    fresh = [n for n in tagged if not is_stale(n, now, domestic=n["domestic"])]
 
     # 국내 기사부터 DOMESTIC_RESERVE 만큼 확보한다. 등급 축과 직교하므로 등급별
     # 몫에서 떼는 게 아니라 아예 먼저 집는다 — 국내 기사는 등급이 무엇이든 후보에
