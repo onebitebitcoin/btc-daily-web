@@ -23,8 +23,29 @@ LOGO_BADGE_MARGIN = 28
 LOGO_RING_PADDING = 8
 
 
-def resolve_og_image_url(content: dict[str, Any]) -> str | None:
+def pick_card(content: dict[str, Any], card_index: int | None) -> dict[str, Any] | None:
+    """슬라이드 위치로 카드를 고른다. 없거나 범위를 벗어나면 None.
+
+    `card_index` 는 `/d/:date/:index` 의 index, 곧 **에디션 안의 슬라이드 위치**다
+    (0 = 표지, 1 = 첫 뉴스 카드). 카드 자체의 번호인 `card["num"]` 과는 다른
+    개념이라 `cards[card_index - 1]` 로 찾는다.
+
+    범위를 벗어나도 예외를 던지지 않는다. 호출자가 에디션 기준으로 되돌아가게
+    두려는 것이다 — 크롤러에게 404 를 주면 미리보기가 통째로 사라지므로, 링크가
+    잘못되었어도 날짜 미리보기는 뜨는 편이 낫다."""
+    if card_index is None or card_index < 1:
+        return None
+    cards = content.get("cards") or []
+    if card_index > len(cards):
+        return None
+    return cards[card_index - 1]
+
+
+def resolve_og_image_url(content: dict[str, Any], card_index: int | None = None) -> str | None:
     """링크 미리보기에 쓸 이미지 URL을 고른다.
+
+    `card_index` 가 가리키는 카드에 쓸 그림이 있으면 그것을 먼저 쓴다. 그 카드에
+    그림이 없거나 인덱스가 범위를 벗어나면 아래 에디션 기준으로 되돌아간다.
 
     `meta.og_image`가 있으면 그것을, 없으면 카드 1(첫 뉴스 카드)의 이미지를 쓴다.
     카드 1의 그림은 그 기사에 맞춰 고른 것이라, 1200x630으로 중앙을 자르면 피사체가
@@ -33,6 +54,12 @@ def resolve_og_image_url(content: dict[str, Any]) -> str | None:
 
     stem(번들 asset)이나 이미지 자체가 없으면 None — CONTENT_CONTRACT.md 4장에
     따르면 배포본은 항상 절대 URL을 쓰므로, stem은 로컬 시드 fixture에서만 나온다."""
+    card = pick_card(content, card_index)
+    if card is not None:
+        picked = (card.get("media") or {}).get("image")
+        if picked and picked.startswith("http"):
+            return picked
+
     override = (content.get("meta") or {}).get("og_image")
     if override and override.startswith("http"):
         return override
@@ -105,12 +132,18 @@ def og_cache_path(cache_dir: str, date_iso: str, source_url: str) -> Path:
     return Path(cache_dir) / f"{date_iso}-{source_fingerprint(source_url)}.jpg"
 
 
-def build_og_description(content: dict[str, Any], max_len: int = DESCRIPTION_MAX_LEN) -> str:
-    cards = content.get("cards") or []
-    if not cards:
-        return content.get("cover", {}).get("hint", "")
-    first = cards[0]
-    text = f"{first.get('title', '')} — {first.get('body', '')}".strip()
+def build_og_description(
+    content: dict[str, Any],
+    max_len: int = DESCRIPTION_MAX_LEN,
+    card_index: int | None = None,
+) -> str:
+    card = pick_card(content, card_index)
+    if card is None:
+        cards = content.get("cards") or []
+        if not cards:
+            return content.get("cover", {}).get("hint", "")
+        card = cards[0]
+    text = f"{card.get('title', '')} — {card.get('body', '')}".strip()
     if len(text) <= max_len:
         return text
     return text[:max_len].rstrip() + "…"
@@ -122,7 +155,9 @@ def _request_origin(request: Request) -> str:
     return f"{scheme}://{host}"
 
 
-def og_image_public_url(origin: str, date_iso: str, content: dict[str, Any]) -> str:
+def og_image_public_url(
+    origin: str, date_iso: str, content: dict[str, Any], card_index: int | None = None
+) -> str:
     """공유 미리보기가 가리킬 이미지 주소. 원본이 바뀌면 주소도 바뀐다.
 
     `?v=<지문>`을 붙이는 이유는 서버 바깥의 캐시 때문이다. 서버 파일 캐시는
@@ -133,19 +168,33 @@ def og_image_public_url(origin: str, date_iso: str, content: dict[str, Any]) -> 
 
     지문 대상이 없으면(카드에 이미지가 없는 날) 쿼리 없이 돌려준다 — 어차피
     이미지 엔드포인트가 404를 내므로 붙일 값이 없다."""
-    source_url = resolve_og_image_url(content)
-    base = f"{origin}/api/og/{date_iso}/image.jpg"
+    source_url = resolve_og_image_url(content, card_index)
+    if pick_card(content, card_index) is None:
+        base = f"{origin}/api/og/{date_iso}/image.jpg"
+    else:
+        base = f"{origin}/api/og/{date_iso}/{card_index}/image.jpg"
     if not source_url:
         return base
     return f"{base}?v={source_fingerprint(source_url)}"
 
 
-def render_og_html(content: dict[str, Any], date_iso: str, request: Request) -> str:
+def render_og_html(
+    content: dict[str, Any], date_iso: str, request: Request, card_index: int | None = None
+) -> str:
+    """공유 미리보기용 메타 HTML.
+
+    `card_index` 를 주면 그 카드의 제목·본문·그림으로 채운다. 카드 한 장이 공유
+    단위이므로, 어느 카드를 공유하든 같은 미리보기가 뜨면 링크를 받은 사람이
+    무엇을 여는지 알 수 없다. 범위를 벗어난 인덱스는 에디션 기준으로 돌아간다."""
     origin = _request_origin(request)
-    title = html.escape(f"{content['meta']['title']} · 데일리 비트코인")
-    description = html.escape(build_og_description(content))
-    image_url = html.escape(og_image_public_url(origin, date_iso, content))
-    page_url = html.escape(f"{origin}/d/{date_iso}")
+    card = pick_card(content, card_index)
+    headline = card["title"] if card is not None else content["meta"]["title"]
+
+    title = html.escape(f"{headline} · 데일리 비트코인")
+    description = html.escape(build_og_description(content, card_index=card_index))
+    image_url = html.escape(og_image_public_url(origin, date_iso, content, card_index))
+    page_path = f"/d/{date_iso}" if card is None else f"/d/{date_iso}/{card_index}"
+    page_url = html.escape(f"{origin}{page_path}")
 
     return f"""<!doctype html>
 <html lang="ko">

@@ -221,20 +221,24 @@ def upsert_edition(body: EditionContent, db: Session = Depends(get_db)) -> dict[
     return edition.content
 
 
-@router.get("/og/{date}/image.jpg")
-def get_og_image(
+def og_image_file(
     date: datetime.date,
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    card_index: int | None,
+    db: Session,
+    settings: Settings,
 ) -> FileResponse:
+    """미리보기 이미지를 캐시에서 내주고, 없으면 원본을 받아 구워서 캐시에 남긴다.
+
+    캐시 파일명에는 원본 URL 지문이 들어가므로(`og_cache_path`) 카드마다 그림이
+    다르면 파일도 저절로 갈린다. 두 카드가 같은 그림을 쓰면 한 파일을 나눠 쓰는데,
+    내용이 같으니 문제가 없다.
+    """
     # 캐시 키에 원본 URL 지문이 들어가므로 에디션을 먼저 읽어야 경로가 정해진다.
     # 캐시 히트에도 DB를 한 번 보게 되지만, 이 엔드포인트는 SNS 크롤러만 때리는
     # 저빈도 경로이고, 그 대가로 썸네일을 바꿔 재발행하면 캐시가 저절로 비켜난다.
-    edition = db.get(Edition, date)
-    if edition is None:
-        raise HTTPException(status_code=404, detail=f"no edition for date {date.isoformat()}")
+    edition = edition_or_404(db, date)
 
-    image_url = resolve_og_image_url(edition.content)
+    image_url = resolve_og_image_url(edition.content, card_index)
     if image_url is None:
         raise HTTPException(status_code=404, detail="no source image for this edition")
 
@@ -254,12 +258,40 @@ def get_og_image(
     return FileResponse(cache_path, media_type="image/jpeg")
 
 
+@router.get("/og/{date}/image.jpg")
+def get_og_image(
+    date: datetime.date,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> FileResponse:
+    return og_image_file(date, None, db, settings)
+
+
+@router.get("/og/{date}/{index}/image.jpg")
+def get_og_card_image(
+    date: datetime.date,
+    index: int,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> FileResponse:
+    return og_image_file(date, index, db, settings)
+
+
 @router.get("/og/latest", response_class=HTMLResponse)
 def get_og_html_latest(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
     edition = db.scalars(select(Edition).order_by(Edition.date.desc())).first()
     if edition is None:
         raise HTTPException(status_code=404, detail="no editions found")
     return HTMLResponse(render_og_html(edition.content, edition.date.isoformat(), request))
+
+
+@router.get("/og/{date}/{index}", response_class=HTMLResponse)
+def get_og_html_card(
+    date: datetime.date, index: int, request: Request, db: Session = Depends(get_db)
+) -> HTMLResponse:
+    """카드 한 장짜리 공유 링크(`/d/:date/:index`)가 받는 미리보기."""
+    edition = edition_or_404(db, date)
+    return HTMLResponse(render_og_html(edition.content, date.isoformat(), request, index))
 
 
 @router.get("/og/{date}", response_class=HTMLResponse)
