@@ -246,6 +246,86 @@ describe('useVerticalFeed', () => {
     expect(scrolledTo[scrolledTo.length - 1]).toBe(8);
   });
 
+  describe('스냅이 도는 동안 새 스와이프를 막는다', () => {
+    /** 네이티브 스냅은 애니메이션 중에 손가락이 닿으면 그 자리에서 멈추고 손가락을
+     *  따라간다. 그러면 카드가 두 장 사이에 걸치거나 엉뚱한 카드로 넘어간다.
+     *  잠금은 `is-settling` 클래스로 걸고, CSS 가 touch-action: none 을 준다. */
+    const settling = () => screen.getByTestId('track').classList.contains('is-settling');
+
+    it('손을 뗀 순간부터 잠근다', () => {
+      render(<Feed total={5} />);
+      const track = screen.getByTestId('track');
+      expect(settling()).toBe(false);
+
+      fireEvent.touchEnd(track);
+
+      expect(settling()).toBe(true);
+    });
+
+    it('스크롤이 멎으면 곧바로 푼다', () => {
+      // 상한(600ms)을 기다리지 않는다. 스냅은 대개 그보다 훨씬 빨리 끝난다.
+      render(<Feed total={5} />);
+      const track = screen.getByTestId('track');
+      fireEvent.touchEnd(track);
+
+      act(() => {
+        track.dispatchEvent(new Event('scrollend'));
+      });
+
+      expect(settling()).toBe(false);
+    });
+
+    it('scrollend 가 오지 않아도 상한이 지나면 푼다', () => {
+      // 미지원 브라우저와, 끝 슬라이드에서 더 밀어 스크롤 자체가 없는 경우를 위한
+      // 안전장치다. 없으면 잠금이 안 풀려 스와이프가 통째로 죽는다.
+      render(<Feed total={5} />);
+      const track = screen.getByTestId('track');
+      fireEvent.touchEnd(track);
+
+      settle();
+
+      expect(settling()).toBe(false);
+    });
+
+    it('연달아 스와이프하면 잠금 시계를 다시 잡는다', () => {
+      render(<Feed total={5} />);
+      const track = screen.getByTestId('track');
+
+      fireEvent.touchEnd(track);
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+      fireEvent.touchEnd(track);
+      act(() => {
+        vi.advanceTimersByTime(300); // 첫 번째 기준이면 이미 풀렸을 시점
+      });
+
+      expect(settling()).toBe(true);
+    });
+
+    it('터치가 취소돼도 잠금이 남지 않는다', () => {
+      // 전화가 오거나 시스템 제스처가 가로채면 touchend 대신 touchcancel 이 온다.
+      render(<Feed total={5} />);
+      const track = screen.getByTestId('track');
+
+      fireEvent.touchCancel(track);
+      expect(settling()).toBe(true);
+
+      settle();
+      expect(settling()).toBe(false);
+    });
+
+    it('버튼 이동은 잠그지 않는다', () => {
+      // 손가락이 닿지 않은 이동이라 스냅이 가로채일 일이 없다. 여기까지 잠그면
+      // 버튼을 잘못 눌렀을 때 스와이프로 바로 고칠 수 없어진다.
+      render(<Feed total={5} />);
+
+      fireEvent.click(screen.getByText('next'));
+
+      expect(settling()).toBe(false);
+    });
+  });
+
   it('트랙이 나중에 생겨도 scrollend 가 이동 잠금을 푼다', () => {
     // 실제 앱의 결함: ShortsFeed 는 데이터가 오기 전까지 트랙 대신 로딩 화면을
     // 그린다. 리스너 등록 effect 가 trackRef 만 보고 한 번만 돌면, 그 한 번이
