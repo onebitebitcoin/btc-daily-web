@@ -15,27 +15,29 @@ const SETTLE_TIMEOUT_MS = 700;
  *  다시 등록한다. 시트가 열려 있는 동안에는 키보드 이동을 막아야 시트 안에서
  *  방향키를 누를 때 뒤 피드가 같이 움직이지 않는다.
  *
- *  ## 이동 중 잠금이 필요한 이유
+ *  ## 이동 중 상태 추적이 필요한 이유
  *
  *  `current` 를 쓰는 주체가 둘이다 — 이동 요청(버튼·키보드)이 낙관적으로 쓰고,
  *  IntersectionObserver 도 쓴다. 스무스 스크롤이 도는 동안 둘이 겹치면 2026-08-23
- *  버튼 도입 뒤 제보된 두 증상이 그대로 난다.
+ *  버튼 도입 뒤 제보된 증상이 그대로 난다. threshold 0.6 을 지나는 순간에는 *떠나는*
+ *  슬라이드도 `isIntersecting` 이라 콜백에 같이 실리고, 한 배치 안 엔트리 순서는
+ *  명세상 보장이 없다. 마지막 엔트리를 그대로 쓰면 `current` 가 이전 값으로
+ *  되돌아가고, 그러면 다음 클릭이 지금 화면과 같은 인덱스로 가는 제자리 이동이
+ *  되어 아무 일도 일어나지 않는다.
  *
- *  1. **되돌림 → 눌러도 안 넘어간다.** threshold 0.6 을 지나는 순간에는 *떠나는*
- *     슬라이드도 `isIntersecting` 이라 콜백에 같이 실린다. 한 배치 안 엔트리 순서는
- *     명세상 보장이 없어서, 마지막 엔트리를 그대로 쓰면 `current` 가 이전 값으로
- *     되돌아간다. 그러면 다음 클릭이 지금 화면과 같은 인덱스로 가는 제자리 이동이
- *     되어 아무 일도 일어나지 않는다.
- *  2. **두 칸 점프.** 낙관적 `current` 로 다음 목표를 계산하면, 화면이 아직 출발점
- *     근처인데 두 번째 클릭이 `현재+2` 를 노려 한 번에 두 장을 건너뛴다.
+ *  그래서 이동을 시작하면 출발·목표를 `pendingRef` 에 적고, 정착할 때까지 출발점과
+ *  목표 *사이를* 지나가는 보고를 버린다. 구간 밖 보고는 받아야 한다 — 사용자가 버튼을
+ *  누른 직후 스와이프로 다른 슬라이드에 가버렸을 때 그 위치를 따라가야 하기 때문이다
+ *  (전부 버리던 시절 실측: 스크롤은 8번인데 활성은 5번에 머물고, 다음 버튼이 6번으로
+ *  뒤로 뛰었다).
  *
- *  그래서 이동을 시작하면 출발·목표를 `pendingRef` 에 적고, 정착할 때까지 (a) 관찰자가
- *  올리는 보고 중 *떠나온* 슬라이드 것만 버리고 (b) 새 이동 요청은 무시한다. 한 번
- *  누르면 정확히 한 장이다.
+ *  ## 연타는 누른 횟수만큼 간다
  *
- *  떠나온 것만 버리는 게 핵심이다. 목표가 아닌 보고를 전부 버리면, 사용자가 버튼을
- *  누른 직후 스와이프로 다른 슬라이드에 가버렸을 때 그 위치를 영영 못 따라잡는다
- *  (실측 확인: 스크롤은 8번인데 활성은 5번에 머물고, 다음 버튼이 6번으로 뒤로 뛴다).
+ *  2026-08-24까지는 이동이 끝나기 전에 들어온 요청을 통째로 버렸다. 한 번 클릭에 두
+ *  장이 넘어가는 걸 막으려던 장치인데, 일부러 두 번 누른 경우까지 같이 막혀서 "버튼을
+ *  연속으로 누르면 멈춘다"는 제보로 돌아왔다(2026-09-18). 지금은 버리지 않고 이미
+ *  진행 중인 목표(`pending.to`)를 기준으로 다음 목표를 계산한다. 낙관적 `current` 가
+ *  아직 갱신되기 전이어도 두 칸 점프나 제자리 이동이 생기지 않는다.
  */
 export function useVerticalFeed(total: number, locked = false) {
   const trackRef = useRef<HTMLDivElement>(null);
@@ -58,16 +60,16 @@ export function useVerticalFeed(total: number, locked = false) {
 
   const goTo = useCallback(
     (index: number) => {
-      // 이동이 아직 안 끝났으면 새 요청을 받지 않는다 — 받으면 두 칸씩 건너뛴다.
-      if (pendingRef.current !== null) return;
-
       const clamped = Math.max(0, Math.min(total - 1, index));
       setCurrent(clamped);
       const slide = trackRef.current?.children[clamped];
       if (!slide) return;
 
       const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      pendingRef.current = { from: currentRef.current, to: clamped };
+      // 이동 중에 또 눌렀으면 출발점은 처음 것을 유지한다. 그래야 아래 관찰자가
+      // 0→2 이동에서 지나가는 1번 슬라이드를 "구간 안"으로 알아보고 버린다.
+      const from = pendingRef.current?.from ?? currentRef.current;
+      pendingRef.current = { from, to: clamped };
       if (settleTimerRef.current !== null) clearTimeout(settleTimerRef.current);
       settleTimerRef.current = setTimeout(clearSettle, reduceMotion ? 0 : SETTLE_TIMEOUT_MS);
 
@@ -80,8 +82,17 @@ export function useVerticalFeed(total: number, locked = false) {
     [total, clearSettle],
   );
 
-  const prev = useCallback(() => goTo(current - 1), [goTo, current]);
-  const next = useCallback(() => goTo(current + 1), [goTo, current]);
+  /** 한 칸 이동. 이동이 진행 중이면 그 목표를 기준으로 삼아 연타한 만큼 누적시킨다. */
+  const step = useCallback(
+    (delta: number) => {
+      const base = pendingRef.current?.to ?? currentRef.current;
+      goTo(base + delta);
+    },
+    [goTo],
+  );
+
+  const prev = useCallback(() => step(-1), [step]);
+  const next = useCallback(() => step(1), [step]);
 
   useEffect(() => clearSettle, [clearSettle]);
 
@@ -108,13 +119,17 @@ export function useVerticalFeed(total: number, locked = false) {
 
   // 스크롤이 실제로 멎으면 타임아웃을 기다리지 않고 바로 잠금을 푼다.
   // (Chrome 114+/Firefox 109+/Safari 17.4+. 미지원 브라우저는 위 타이머가 맡는다.)
+  //
+  // `total` 을 의존성에 넣는 게 핵심이다. ShortsFeed 는 데이터가 도착하기 전까지
+  // 트랙 대신 로딩 화면을 그리므로 첫 실행 때 `trackRef.current` 가 null 이다.
+  // `clearSettle` 만 의존하면 그 한 번으로 끝나서 리스너가 영영 안 붙었다.
   useEffect(() => {
     const track = trackRef.current;
     if (!track || !('onscrollend' in window)) return;
     const onScrollEnd = () => clearSettle();
     track.addEventListener('scrollend', onScrollEnd);
     return () => track.removeEventListener('scrollend', onScrollEnd);
-  }, [clearSettle]);
+  }, [total, clearSettle]);
 
   useEffect(() => {
     const track = trackRef.current;
@@ -136,10 +151,14 @@ export function useVerticalFeed(total: number, locked = false) {
         if (index < 0) return;
 
         const pending = pendingRef.current;
-        // 떠나온 슬라이드의 늦은 보고만 버린다. 목표든 제3의 위치든 나머지는 받는다 —
-        // 버리기만 하면 사용자가 이동 중에 스와이프로 가로챘을 때 그 위치를 영영
-        // 못 따라잡고, 다음 버튼이 낡은 인덱스 기준으로 뒤로 점프한다.
-        if (pending !== null && index === pending.from) return;
+        // 출발점과 목표 사이를 지나가는 중간 보고만 버린다. 목표에 도착했거나 그
+        // 구간 밖이면 받는다 — 구간 밖은 사용자가 이동 중에 스와이프로 가로챈
+        // 위치이고, 그것마저 버리면 영영 못 따라잡아 다음 버튼이 뒤로 점프한다.
+        if (pending !== null && index !== pending.to) {
+          const lo = Math.min(pending.from, pending.to);
+          const hi = Math.max(pending.from, pending.to);
+          if (index >= lo && index <= hi) return;
+        }
         clearSettle();
         setCurrent(index);
       },

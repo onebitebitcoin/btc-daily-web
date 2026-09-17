@@ -35,7 +35,14 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   delete (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver;
+  delete (window as { onscrollend?: unknown }).onscrollend;
 });
+
+/** `'onscrollend' in window` 를 통과시켜 지원 브라우저 경로를 밟게 한다.
+ *  jsdom 은 이 이벤트를 구현하지 않아서 심지 않으면 타이머 경로만 돈다. */
+function enableScrollEnd() {
+  (window as { onscrollend?: unknown }).onscrollend = null;
+}
 
 /** 스냅 애니메이션이 끝날 때까지 기다린다(가짜 타이머). */
 function settle() {
@@ -51,11 +58,15 @@ function Feed({ total, locked = false }: { total: number; locked?: boolean }) {
       <span data-testid="current">{current}</span>
       <button onClick={prev}>prev</button>
       <button onClick={next}>next</button>
-      <div className="track" ref={trackRef}>
-        {Array.from({ length: total }, (_, i) => (
-          <div className="slide" key={i} />
-        ))}
-      </div>
+      {/* ShortsFeed 와 똑같이, 실을 내용이 없으면 트랙 자체를 그리지 않는다.
+          트랙이 나중에 생기는 이 순서를 재현해야 리스너 등록 회귀를 잡는다. */}
+      {total > 0 && (
+        <div className="track" data-testid="track" ref={trackRef}>
+          {Array.from({ length: total }, (_, i) => (
+            <div className="slide" key={i} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -70,7 +81,6 @@ describe('useVerticalFeed', () => {
     fireEvent.keyDown(window, { key: 'ArrowDown' });
     expect(current()).toBe('1');
 
-    // 이동이 정착하기 전 입력은 무시된다 — 안 그러면 한 번에 두 칸씩 건너뛴다.
     settle();
     fireEvent.keyDown(window, { key: 'ArrowUp' });
     expect(current()).toBe('0');
@@ -158,16 +168,32 @@ describe('useVerticalFeed', () => {
     expect(scrolledTo[scrolledTo.length - 1]).toBe(2);
   });
 
-  it('애니메이션이 끝나기 전에 또 눌러도 한 칸만 간다', () => {
-    // 스무스 스크롤이 진행 중이면 화면은 아직 출발점 근처다. 낙관적 current 로 다음
-    // 목표를 계산하면 두 번째 클릭이 0에서 2로 건너뛴다.
+  it('애니메이션이 끝나기 전에 또 눌러도 누른 횟수만큼 간다', () => {
+    // 이동이 끝나기 전 입력을 버리던 시절의 제보: 버튼을 연속으로 두 번 누르면 두
+    // 번째가 씹혀서 "멈춘다"고 느낀다. 진행 중인 목표를 기준으로 이어 붙인다.
     render(<Feed total={5} />);
     const next = screen.getByText('next');
 
     fireEvent.click(next);
     fireEvent.click(next);
 
-    expect(scrolledTo).toEqual([1]);
+    expect(scrolledTo).toEqual([1, 2]);
+    expect(current()).toBe('2');
+  });
+
+  it('연타로 건너뛰는 중간 슬라이드 보고에는 흔들리지 않는다', () => {
+    // 0 → 2 로 가는 도중 1번 슬라이드가 threshold 를 지나며 보고된다. 그걸 받으면
+    // 진행바가 1로 물러났다가 2로 올라가는 깜빡임이 보인다.
+    render(<Feed total={5} />);
+    const next = screen.getByText('next');
+
+    fireEvent.click(next);
+    fireEvent.click(next);
+    act(() => {
+      fireIO([{ target: observed[1], isIntersecting: true, intersectionRatio: 0.9 }]);
+    });
+
+    expect(current()).toBe('2');
   });
 
   it('정착한 뒤에는 다시 눌러 이동할 수 있다', () => {
@@ -219,4 +245,29 @@ describe('useVerticalFeed', () => {
     fireEvent.click(screen.getByText('next'));
     expect(scrolledTo[scrolledTo.length - 1]).toBe(8);
   });
+
+  it('트랙이 나중에 생겨도 scrollend 가 이동 잠금을 푼다', () => {
+    // 실제 앱의 결함: ShortsFeed 는 데이터가 오기 전까지 트랙 대신 로딩 화면을
+    // 그린다. 리스너 등록 effect 가 trackRef 만 보고 한 번만 돌면, 그 한 번이
+    // 트랙 없는 시점이라 scrollend 리스너가 영영 안 붙는다. 그러면 잠금이 관찰자
+    // 보고나 700ms 타이머를 기다려야만 풀려서 그사이 입력이 계속 씹힌다.
+    enableScrollEnd();
+    const { rerender } = render(<Feed total={0} />);
+    rerender(<Feed total={5} />);
+    const track = screen.getByTestId('track');
+
+    fireEvent.click(screen.getByText('next')); // 0 → 1 이동 시작(잠금 걸림)
+    act(() => {
+      track.dispatchEvent(new Event('scrollend'));
+    });
+
+    // 잠금이 풀렸으면 출발 슬라이드 보고도 그대로 받는다. 안 풀렸으면 그 보고는
+    // "떠나온 슬라이드"로 취급되어 버려지고 current 가 1에 머문다.
+    act(() => {
+      fireIO([{ target: observed[0], isIntersecting: true, intersectionRatio: 0.9 }]);
+    });
+
+    expect(current()).toBe('0');
+  });
+
 });
