@@ -53,16 +53,43 @@ notify_fail() {  # $1=사유  $2=종료코드
     exit 1
   fi
 
-  /Users/nsw/.local/bin/claude -p \
-    'btc-daily 스킬을 사용해 오늘자(Asia/Seoul 기준) 비트코인 카드뉴스 10장을 만들어 프로덕션 https://daily.onebitebitcoin.com 에 발행하라. 스킬 SKILL.md의 1~7단계를 하나도 빼지 말고 순서대로 수행한다. 특히 3.1단계(최근 발행분 대비 중복 점검)는 필수다 — recent_editions.py 를 돌려 최근 7일에 무엇이 나갔는지 먼저 보고 카드를 골라라. 2~3일 안의 재등장은 새 숫자나 새 국면이 있으면 괜찮지만, 최근 7일에 4장 이상 나갔거나 4일 이상 연속 나간 토픽, 어제 카드와 사실상 같은 사건인데 새 내용이 없는 후보는 빼고 다른 후보로 채워라(시황 카드는 예외). 무엇을 왜 뺐고 무엇으로 채웠는지 마지막 보고에 적어라. 5.1단계(24시간 트렌딩 토픽 10개)도 필수다 — trending 블록 없이 발행하지 마라. trending.note 는 draft의 trending_corpus.note 를 그대로 복사하고 집계 건수를 직접 어림해서 쓰지 마라. trending_candidates 가 10개 미만이라 트렌딩을 뺐다면 그 사실과 이유를 출력에 명시하라. 수집 결과가 비었거나 소스가 죽어 있으면 더미 데이터로 대체하지 말고 그 자리에서 중단하라. 사실에 없는 숫자를 지어내지 마라. 유튜브 후보의 요약은 그 자체가 틀릴 수 있으니 소스끼리 숫자가 어긋나면 웹으로 검증한 값을 써라. 썸네일 문구가 본문과 충돌하면 그 카드는 media를 null로 둬라. 마지막에 발행된 날짜, 카드 10장의 제목, 트렌딩 10개의 순위와 토픽을 출력하라.' \
-    --model claude-sonnet-5 \
-    --dangerously-skip-permissions \
-    --output-format text
-  # zsh에서 status 는 $? 의 예약 별칭이라 대입하면 스크립트가 그 자리에서 죽는다.
-  rc=$?
+  # 137(=128+9)은 외부에서 보낸 SIGKILL 이다. 2026-09-17 에 syspolicyd 가 폭주해
+  # Gatekeeper 가 claude 를 악성코드로 오판정했고, 8분쯤 돌던 발행이 그대로 끊겨
+  # 하루치가 빠졌다. 메모리 압박(jetsam)으로도 같은 코드가 나온다. 어느 쪽이든
+  # 발행 내용의 문제가 아니라 머신 사정이므로 한 번은 다시 시도한다.
+  attempt=1
+  while true; do
+    /Users/nsw/.local/bin/claude -p \
+      'btc-daily 스킬을 사용해 오늘자(Asia/Seoul 기준) 비트코인 카드뉴스 10장을 만들어 프로덕션 https://daily.onebitebitcoin.com 에 발행하라. 스킬 SKILL.md의 1~7단계를 하나도 빼지 말고 순서대로 수행한다. 특히 3.1단계(최근 발행분 대비 중복 점검)는 필수다 — recent_editions.py 를 돌려 최근 7일에 무엇이 나갔는지 먼저 보고 카드를 골라라. 2~3일 안의 재등장은 새 숫자나 새 국면이 있으면 괜찮지만, 최근 7일에 4장 이상 나갔거나 4일 이상 연속 나간 토픽, 어제 카드와 사실상 같은 사건인데 새 내용이 없는 후보는 빼고 다른 후보로 채워라(시황 카드는 예외). 무엇을 왜 뺐고 무엇으로 채웠는지 마지막 보고에 적어라. 5.1단계(24시간 트렌딩 토픽 10개)도 필수다 — trending 블록 없이 발행하지 마라. trending.note 는 draft의 trending_corpus.note 를 그대로 복사하고 집계 건수를 직접 어림해서 쓰지 마라. trending_candidates 가 10개 미만이라 트렌딩을 뺐다면 그 사실과 이유를 출력에 명시하라. 수집 결과가 비었거나 소스가 죽어 있으면 더미 데이터로 대체하지 말고 그 자리에서 중단하라. 사실에 없는 숫자를 지어내지 마라. 유튜브 후보의 요약은 그 자체가 틀릴 수 있으니 소스끼리 숫자가 어긋나면 웹으로 검증한 값을 써라. 썸네일 문구가 본문과 충돌하면 그 카드는 media를 null로 둬라. 마지막에 발행된 날짜, 카드 10장의 제목, 트렌딩 10개의 순위와 토픽을 출력하라.' \
+      --model claude-sonnet-5 \
+      --dangerously-skip-permissions \
+      --output-format text
+    # zsh에서 status 는 $? 의 예약 별칭이라 대입하면 스크립트가 그 자리에서 죽는다.
+    rc=$?
+    echo "=== $(date '+%F %T %Z') claude exit=$rc (시도 $attempt/2) ==="
 
-  echo "=== $(date '+%F %T %Z') claude exit=$rc ==="
-  [[ "$rc" != "0" ]] && notify_fail "claude 발행 실패" "$rc"
+    [[ "$rc" != "137" || "$attempt" -ge 2 ]] && break
+
+    echo "--- SIGKILL 감지 — 120초 뒤 재시도한다 ---"
+    sleep 120
+
+    # 죽기 직전에 발행까지는 끝냈을 수 있다. 재시도 전에 확인해 같은 날짜를 두 번
+    # 올리는 일을 막는다.
+    if curl -s -m 15 -o /dev/null -w "%{http_code}" "$API/api/editions/$today" | grep -q '^200$'; then
+      echo "재시도 생략: 다시 보니 $today 에디션이 이미 올라가 있다"
+      rc=0
+      break
+    fi
+    attempt=$((attempt + 1))
+  done
+
+  if [[ "$rc" != "0" ]]; then
+    if [[ "$attempt" -ge 2 ]]; then
+      notify_fail "claude 발행 실패 — SIGKILL 후 재시도까지 실패" "$rc"
+    else
+      notify_fail "claude 발행 실패" "$rc"
+    fi
+  fi
 
   # claude 가 0 을 반환해도 실제로 올라갔는지는 별개다 — 프로덕션에 오늘자
   # 에디션이 없으면 실패로 친다.
