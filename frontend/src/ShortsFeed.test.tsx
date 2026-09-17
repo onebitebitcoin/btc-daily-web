@@ -122,18 +122,25 @@ const SLIDES_PER_EDITION = base.cards.length + 2;
 
 /** 한 칸 내려가고 실제로 반영될 때까지 기다린다.
  *
- *  keyDown을 연달아 쏘면 안 된다 — 리렌더 전에는 핸들러가 같은 `current`를 물고
- *  있어 두 번 눌러도 한 칸만 움직인다. 로컬에서는 우연히 통과하고 CI에서 깨졌다. */
+ *  키를 그냥 연달아 쏘면 안 된다. useVerticalFeed 는 앞 이동이 정착할 때까지 새 요청을
+ *  버리므로, 잠금이 아직 걸려 있는 동안 쏜 키는 그대로 사라진다. 로컬에서는 빨라서
+ *  우연히 통과하고 느린 CI 러너에서 깨졌다(2026-09-18, 매번 다른 테스트가 걸렸다).
+ *
+ *  그래서 이동 버튼이 다시 살아나는 것을 보고 나서 누른다. 버튼의 disabled 가 곧 잠금
+ *  상태이므로(FeedNav 의 busy), 이 대기가 "입력을 받을 수 있는 시점"을 정확히 집는다.
+ */
 async function advance(container: HTMLElement, to: number) {
-  fireEvent.keyDown(window, { key: 'ArrowDown' });
-  // 실제 브라우저는 스무스 스크롤이 멎으면 scrollend 를 준다. 그게 와야 다음 이동이
-  // 열린다 — useVerticalFeed 는 애니메이션이 끝나기 전 요청을 버린다. jsdom 에는
-  // 이 이벤트가 없으므로 손으로 쏜다(아래 enableScrollEnd 참고).
+  const downButton = () =>
+    container.querySelector('button[aria-label="다음 카드"]') as HTMLButtonElement | null;
+
+  await waitFor(() => expect(downButton()?.disabled).toBe(false), { timeout: 3000 });
+  fireEvent.click(downButton()!);
+
+  // 실제 브라우저는 스무스 스크롤이 멎으면 scrollend 를 준다. 그게 와야 잠금이 풀려
+  // 다음 이동이 열린다. jsdom 에는 이 이벤트가 없으므로 손으로 쏜다(enableScrollEnd).
   const track = container.querySelector('.feed-track');
   if (track) act(() => void track.dispatchEvent(new Event('scrollend')));
-  // 타임아웃을 기본(1000ms)보다 넉넉히 잡는다. scrollend 가 어떤 이유로든 유실되면
-  // 이동 잠금이 SETTLE_TIMEOUT_MS(700ms) 타이머로 풀리는데, 느린 CI 러너에서는 그
-  // 경로가 기본 타임아웃을 넘겨 간헐적으로 깨졌다.
+
   await waitFor(
     () => expect(container.querySelectorAll('.slide')[to]?.className).toContain('is-active'),
     { timeout: 3000 },
