@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { ShortsFeed } from './ShortsFeed';
 import fixture from './fixtures/content.json';
@@ -126,6 +126,11 @@ const SLIDES_PER_EDITION = base.cards.length + 2;
  *  있어 두 번 눌러도 한 칸만 움직인다. 로컬에서는 우연히 통과하고 CI에서 깨졌다. */
 async function advance(container: HTMLElement, to: number) {
   fireEvent.keyDown(window, { key: 'ArrowDown' });
+  // 실제 브라우저는 스무스 스크롤이 멎으면 scrollend 를 준다. 그게 와야 다음 이동이
+  // 열린다 — useVerticalFeed 는 애니메이션이 끝나기 전 요청을 버린다. jsdom 에는
+  // 이 이벤트가 없으므로 손으로 쏜다(아래 enableScrollEnd 참고).
+  const track = container.querySelector('.feed-track');
+  if (track) act(() => void track.dispatchEvent(new Event('scrollend')));
   await waitFor(() =>
     expect(container.querySelectorAll('.slide')[to]?.className).toContain('is-active'),
   );
@@ -135,12 +140,20 @@ async function advanceTo(container: HTMLElement, target: number) {
   for (let i = 1; i <= target; i += 1) await advance(container, i);
 }
 
+/** `'onscrollend' in window` 를 통과시켜 지원 브라우저 경로를 밟게 한다.
+ *  jsdom 은 이 이벤트를 구현하지 않아서, 심지 않으면 리스너가 붙지 않는다. */
+function enableScrollEnd() {
+  (window as { onscrollend?: unknown }).onscrollend = null;
+}
+
 beforeEach(() => {
   stubScrollObserver();
+  enableScrollEnd();
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  delete (window as { onscrollend?: unknown }).onscrollend;
 });
 
 describe('ShortsFeed', () => {
@@ -218,7 +231,7 @@ describe('ShortsFeed', () => {
     expect(pushState).not.toHaveBeenCalled();
   });
 
-  it('opens the detail sheet and locks the feed behind it', async () => {
+  it('opens the detail sheet', async () => {
     stubApi();
     const { container } = renderFeed();
     await screen.findByText(base.cover.eyebrow);
@@ -226,10 +239,9 @@ describe('ShortsFeed', () => {
     fireEvent.click(screen.getAllByText('더보기')[0]);
 
     expect(container.querySelector('.sheet')).not.toBeNull();
-    expect(container.querySelector('.feed-track.is-locked')).not.toBeNull();
   });
 
-  it('closes the detail sheet on Escape and unlocks the feed', async () => {
+  it('closes the detail sheet on Escape', async () => {
     stubApi();
     const { container } = renderFeed();
     await screen.findByText(base.cover.eyebrow);
@@ -238,7 +250,6 @@ describe('ShortsFeed', () => {
     fireEvent.keyDown(document, { key: 'Escape' });
 
     await waitFor(() => expect(container.querySelector('.sheet')).toBeNull());
-    expect(container.querySelector('.feed-track.is-locked')).toBeNull();
   });
 
   it('does not move the feed while the sheet is open', async () => {

@@ -5,6 +5,8 @@ interface FeedNavProps {
   atStart: boolean;
   /** 마지막이면 아래로 갈 곳이 없다(피드가 더 불러올 게 남았으면 마지막이 아니다). */
   atEnd: boolean;
+  /** 이동 애니메이션이 도는 중. 끝날 때까지 두 버튼 모두 비활성이다. */
+  busy: boolean;
 }
 
 /** 위/아래 이동 버튼.
@@ -19,14 +21,14 @@ interface FeedNavProps {
  *  끝에 닿으면 감추지 않고 비활성으로 남긴다 — 버튼이 사라지면 자리가 밀려서
  *  다음 클릭이 엉뚱한 곳을 누른다.
  */
-export function FeedNav({ onPrev, onNext, atStart, atEnd }: FeedNavProps) {
+export function FeedNav({ onPrev, onNext, atStart, atEnd, busy }: FeedNavProps) {
   return (
     <div className="feed-nav">
       <button
         type="button"
         className="feed-nav-btn"
         onClick={onPrev}
-        disabled={atStart}
+        disabled={atStart || busy}
         aria-label="이전 카드"
       >
         <Chevron up />
@@ -35,7 +37,7 @@ export function FeedNav({ onPrev, onNext, atStart, atEnd }: FeedNavProps) {
         type="button"
         className="feed-nav-btn"
         onClick={onNext}
-        disabled={atEnd}
+        disabled={atEnd || busy}
         aria-label="다음 카드"
       >
         <Chevron />

@@ -5,7 +5,16 @@ import { FeedNav } from './FeedNav';
 function renderNav(overrides: Partial<Parameters<typeof FeedNav>[0]> = {}) {
   const onPrev = vi.fn();
   const onNext = vi.fn();
-  render(<FeedNav onPrev={onPrev} onNext={onNext} atStart={false} atEnd={false} {...overrides} />);
+  render(
+    <FeedNav
+      onPrev={onPrev}
+      onNext={onNext}
+      atStart={false}
+      atEnd={false}
+      busy={false}
+      {...overrides}
+    />,
+  );
   return {
     onPrev,
     onNext,
@@ -65,5 +74,26 @@ describe('FeedNav', () => {
 
     expect(up.querySelector('svg')).not.toBeNull();
     expect(up.textContent).toBe('');
+  });
+
+  it('이동이 도는 동안에는 두 버튼 모두 눌리지 않는다', () => {
+    // 연달아 누르면 애니메이션이 끝나기 전에 다음 이동이 겹쳐 시작되어, 화면이
+    // 어디로 갈지 예측할 수 없어진다.
+    const { up, down, onPrev, onNext } = renderNav({ busy: true });
+
+    expect((up as HTMLButtonElement).disabled).toBe(true);
+    expect((down as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(down);
+    fireEvent.click(up);
+
+    expect(onNext).not.toHaveBeenCalled();
+    expect(onPrev).not.toHaveBeenCalled();
+  });
+
+  it('이동이 끝나면 다시 눌린다', () => {
+    const { down } = renderNav({ busy: false });
+
+    expect((down as HTMLButtonElement).disabled).toBe(false);
   });
 });

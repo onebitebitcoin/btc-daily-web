@@ -128,7 +128,10 @@ export function ShortsFeed({ startDate, startIndex }: ShortsFeedProps) {
   const slides = useMemo(() => buildSlides(entries), [entries]);
   // 시트가 떠 있는 동안은 뒤 피드가 움직이면 안 된다 — 어느 시트든 마찬가지다.
   const sheetOpen = sheetCard !== null || sheetTopic !== null;
-  const { current, trackRef, goTo, prev, next } = useVerticalFeed(slides.length, sheetOpen);
+  const { current, moving, trackRef, goTo, prev, next } = useVerticalFeed(
+    slides.length,
+    sheetOpen,
+  );
 
   const feedDates = useMemo(() => entries.map((e) => e.date), [entries]);
   const {
@@ -227,10 +230,14 @@ export function ShortsFeed({ startDate, startIndex }: ShortsFeedProps) {
           atStart={current === 0}
           // 더 불러올 게 남아 있으면 마지막 슬라이드라도 끝이 아니다.
           atEnd={!hasMore && current >= slides.length - 1}
+          busy={moving}
         />
       )}
 
-      <div className={'feed-track' + (sheetOpen ? ' is-locked' : '')} ref={trackRef}>
+      {/* 시트가 열려 있을 때 뒤 피드가 안 움직이는 것은 트랙이 늘 overflow: hidden
+          이라는 점과, useVerticalFeed 에 넘긴 sheetOpen 이 키보드를 막는다는 점으로
+          보장된다. 예전에 쓰던 is-locked 클래스는 그래서 걷어냈다. */}
+      <div className="feed-track" ref={trackRef}>
         {slides.map((slide, index) => {
           const isActive = index === current;
           const shouldLoadImage = Math.abs(index - current) <= IMAGE_WINDOW;

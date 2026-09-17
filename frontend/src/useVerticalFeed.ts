@@ -15,29 +15,37 @@ const SETTLE_TIMEOUT_MS = 700;
  *  다시 등록한다. 시트가 열려 있는 동안에는 키보드 이동을 막아야 시트 안에서
  *  방향키를 누를 때 뒤 피드가 같이 움직이지 않는다.
  *
- *  ## 이동 중 상태 추적이 필요한 이유
+ *  ## 이동 수단은 버튼과 키보드뿐이다
  *
- *  `current` 를 쓰는 주체가 둘이다 — 이동 요청(버튼·키보드)이 낙관적으로 쓰고,
- *  IntersectionObserver 도 쓴다. 스무스 스크롤이 도는 동안 둘이 겹치면 2026-08-23
- *  버튼 도입 뒤 제보된 증상이 그대로 난다. threshold 0.6 을 지나는 순간에는 *떠나는*
- *  슬라이드도 `isIntersecting` 이라 콜백에 같이 실리고, 한 배치 안 엔트리 순서는
- *  명세상 보장이 없다. 마지막 엔트리를 그대로 쓰면 `current` 가 이전 값으로
- *  되돌아가고, 그러면 다음 클릭이 지금 화면과 같은 인덱스로 가는 제자리 이동이
- *  되어 아무 일도 일어나지 않는다.
+ *  2026-09-18 부터 트랙의 세로 스크롤을 CSS 에서 막았다(feed.css 의 `.feed-track`).
+ *  터치 스와이프와 휠은 브라우저 네이티브 스냅이 처리했는데, 애니메이션 도중에
+ *  손가락이 닿으면 그 자리에서 멈추고 따라와 카드가 두 장 사이에 걸치거나 엉뚱한
+ *  카드로 넘어갔다. 그 판정을 우리가 가져오려는 시도도 더 불안정했다. 지금은 모든
+ *  이동이 `goTo` 한 곳을 지나므로 언제 어디로 가는지가 한 자리에서 결정된다.
  *
- *  그래서 이동을 시작하면 출발·목표를 `pendingRef` 에 적고, 정착할 때까지 출발점과
- *  목표 *사이를* 지나가는 보고를 버린다. 구간 밖 보고는 받아야 한다 — 사용자가 버튼을
- *  누른 직후 스와이프로 다른 슬라이드에 가버렸을 때 그 위치를 따라가야 하기 때문이다
- *  (전부 버리던 시절 실측: 스크롤은 8번인데 활성은 5번에 머물고, 다음 버튼이 6번으로
- *  뒤로 뛰었다).
+ *  프로그램이 부르는 `scrollIntoView` 는 `overflow: hidden` 에서도 그대로 동작한다.
+ *  막히는 것은 사용자 입력뿐이다.
  *
- *  ## 연타는 누른 횟수만큼 간다
+ *  ## 이동 중에는 새 요청을 받지 않는다
  *
- *  2026-08-24까지는 이동이 끝나기 전에 들어온 요청을 통째로 버렸다. 한 번 클릭에 두
- *  장이 넘어가는 걸 막으려던 장치인데, 일부러 두 번 누른 경우까지 같이 막혀서 "버튼을
- *  연속으로 누르면 멈춘다"는 제보로 돌아왔다(2026-09-18). 지금은 버리지 않고 이미
- *  진행 중인 목표(`pending.to`)를 기준으로 다음 목표를 계산한다. 낙관적 `current` 가
- *  아직 갱신되기 전이어도 두 칸 점프나 제자리 이동이 생기지 않는다.
+ *  `goTo` 는 앞 이동이 정착할 때까지 새 요청을 버린다. 버튼은 그동안 `moving` 으로
+ *  비활성이 되어 눌리지 않는 게 눈에 보이지만, 키보드와 진행바 탭도 같은 경로를
+ *  타므로 훅 안에서도 막는다.
+ *
+ *  잠금은 `scrollend` 나 타이머가 푼다. IntersectionObserver 는 풀지 않는다 —
+ *  관찰자는 임계값(60%)을 지나는 순간 보고하는데 그때 화면은 아직 움직이는 중이라,
+ *  거기서 버튼이 살아나면 애니메이션이 끝나기 전에 다음 이동이 겹쳐 시작된다.
+ *
+ *  ## 관찰자 보고를 거르는 이유
+ *
+ *  `current` 를 쓰는 주체가 둘이다 — `goTo` 가 낙관적으로 쓰고, 관찰자도 쓴다.
+ *  threshold 0.6 을 지나는 순간에는 *떠나는* 슬라이드도 `isIntersecting` 이라 콜백에
+ *  같이 실리고, 한 배치 안 엔트리 순서는 명세상 보장이 없다. 마지막 엔트리를 그대로
+ *  쓰면 `current` 가 이전 값으로 되돌아가고, 그러면 다음 클릭이 지금 화면과 같은
+ *  인덱스로 가는 제자리 이동이 되어 아무 일도 일어나지 않는다(2026-08-23 제보).
+ *
+ *  그래서 이동을 시작하면 출발·목표를 `pendingRef` 에 적고, 그 구간을 지나가는 보고를
+ *  버린다. 구간 밖 보고는 받는다 — 딥링크 점프나 캘린더 이동처럼 화면이 멀리 뛴 경우다.
  */
 export function useVerticalFeed(total: number, locked = false) {
   const trackRef = useRef<HTMLDivElement>(null);
@@ -45,6 +53,8 @@ export function useVerticalFeed(total: number, locked = false) {
   /** 이동 중이면 출발·목표 인덱스, 정착했으면 null. */
   const pendingRef = useRef<{ from: number; to: number } | null>(null);
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** 이동 애니메이션이 도는 중인지. 버튼을 비활성으로 만들려고 state 로 둔다. */
+  const [moving, setMoving] = useState(false);
   // goTo 안에서 출발점을 읽으려고 둔다. state 를 직접 읽으면 슬라이드가 바뀔 때마다
   // goTo 가 새로 만들어지고, 그걸 의존하는 키보드 리스너까지 매번 다시 붙는다.
   const currentRef = useRef(0);
@@ -52,6 +62,7 @@ export function useVerticalFeed(total: number, locked = false) {
 
   const clearSettle = useCallback(() => {
     pendingRef.current = null;
+    setMoving(false);
     if (settleTimerRef.current !== null) {
       clearTimeout(settleTimerRef.current);
       settleTimerRef.current = null;
@@ -60,16 +71,18 @@ export function useVerticalFeed(total: number, locked = false) {
 
   const goTo = useCallback(
     (index: number) => {
+      // 이동이 끝나기 전에는 새 요청을 받지 않는다. 버튼도 그동안 비활성이라
+      // 눌리지 않지만, 키보드와 진행바 탭도 같은 경로를 타므로 여기서 막는다.
+      if (pendingRef.current !== null) return;
+
       const clamped = Math.max(0, Math.min(total - 1, index));
       setCurrent(clamped);
       const slide = trackRef.current?.children[clamped];
       if (!slide) return;
 
       const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      // 이동 중에 또 눌렀으면 출발점은 처음 것을 유지한다. 그래야 아래 관찰자가
-      // 0→2 이동에서 지나가는 1번 슬라이드를 "구간 안"으로 알아보고 버린다.
-      const from = pendingRef.current?.from ?? currentRef.current;
-      pendingRef.current = { from, to: clamped };
+      pendingRef.current = { from: currentRef.current, to: clamped };
+      setMoving(true);
       if (settleTimerRef.current !== null) clearTimeout(settleTimerRef.current);
       settleTimerRef.current = setTimeout(clearSettle, reduceMotion ? 0 : SETTLE_TIMEOUT_MS);
 
@@ -82,14 +95,7 @@ export function useVerticalFeed(total: number, locked = false) {
     [total, clearSettle],
   );
 
-  /** 한 칸 이동. 이동이 진행 중이면 그 목표를 기준으로 삼아 연타한 만큼 누적시킨다. */
-  const step = useCallback(
-    (delta: number) => {
-      const base = pendingRef.current?.to ?? currentRef.current;
-      goTo(base + delta);
-    },
-    [goTo],
-  );
+  const step = useCallback((delta: number) => goTo(currentRef.current + delta), [goTo]);
 
   const prev = useCallback(() => step(-1), [step]);
   const next = useCallback(() => step(1), [step]);
@@ -159,7 +165,9 @@ export function useVerticalFeed(total: number, locked = false) {
           const hi = Math.max(pending.from, pending.to);
           if (index >= lo && index <= hi) return;
         }
-        clearSettle();
+        // 잠금을 여기서 풀지 않는다. 관찰자는 임계값(60%)을 지나는 순간 보고하는데,
+        // 그때 화면은 아직 움직이는 중이다. 버튼이 거기서 살아나면 애니메이션이
+        // 끝나기 전에 다음 이동이 겹쳐 시작된다. 해제는 scrollend 와 타이머가 맡는다.
         setCurrent(index);
       },
       { root: track, threshold: [0.6] },
@@ -168,5 +176,5 @@ export function useVerticalFeed(total: number, locked = false) {
     return () => io.disconnect();
   }, [total, clearSettle]);
 
-  return { current, trackRef, goTo, prev, next };
+  return { current, moving, trackRef, goTo, prev, next };
 }
