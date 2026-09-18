@@ -114,12 +114,22 @@ body {
 }
 .card-art .art img { object-fit: contain; }
 
+/* 내용이 카드 높이를 넘으면 잘리지 않고 스크롤된다.
+   `flex: 0 1 auto` 가 핵심이다. 0 0 auto 이던 시절에는 본문이 자기 콘텐츠만큼
+   높이를 가진 채 카드 밖으로 밀려나, .card 의 overflow: hidden 에 그대로 잘렸다.
+   좋아요·공유 버튼이 들어가 액션 줄이 길어지면서 작은 화면(375x667)에서 그 줄이
+   5~15px 씩 잘린다는 제보로 드러났다(2026-09-18).
+
+   예전에는 카드 안 스크롤을 막았다. 세로 피드 스와이프와 축이 충돌했기 때문이다.
+   이제 트랙이 사용자 입력을 받지 않으므로(위 .feed-track) 충돌할 축 자체가 없다. */
 .card-body {
-  flex: 0 0 auto; min-height: 0;
+  flex: 0 1 auto; min-height: 0;
   padding: 16px 18px 18px;
   display: flex; flex-direction: column; gap: 12px;
-  overflow: hidden;
+  overflow-y: auto; overflow-x: hidden;
+  scrollbar-width: none;
 }
+.card-body::-webkit-scrollbar { display: none; }
 
 .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .card-num {
@@ -242,8 +252,8 @@ body {
 }
 
 .body-text { font-size: 15.5px; line-height: 1.72; color: var(--ink); margin: 0; }
-/* 카드에서는 잘라 보여주고 전문은 시트에서 읽는다 — 카드 안에 스크롤을 만들지
-   않는 것이 세로 피드에서 축 충돌을 피하는 유일한 방법이다. */
+/* 카드에서는 잘라 보여주고 전문은 시트에서 읽는다. 카드 안 스크롤이 가능해진
+   뒤에도 이 방침은 유지한다 — 한 장이 한 눈에 들어와야 카드뉴스다. */
 .body-text.is-clamped {
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 7;
   overflow: hidden; flex: 0 1 auto;
@@ -274,9 +284,8 @@ body {
 }
 
 /* ---------- 표지 / 클로징 ---------- */
-/* 표지·클로징만 예외로 카드 안 스크롤을 허용한다. 클로징은 링크·도장·출처·
-   면책까지 들어가 짧은 화면에서 넘칠 수 있는데, 편당 한 장뿐이라 축 충돌의
-   대가보다 잘리지 않는 편이 낫다. */
+/* 카드 안 스크롤은 이제 모든 카드의 기본이다(위 .card-body). 여기서는 가운데 정렬과
+   여백만 달리한다. */
 /* overscroll-behavior 를 여기에 두지 마라. `contain` 이면 스크롤이 부모(.feed-track)로
    전파되지 않는데, 이 본문은 표지 화면의 80%(412x830 기준 662px)를 덮으면서 정작
    내용이 넘치지 않으면 스크롤할 것도 없다. 그러면 그 위에서 시작한 스와이프가
@@ -292,10 +301,7 @@ body {
 .card.is-cover .card-body, .card.is-closing .card-body {
   align-items: center; text-align: center; justify-content: center;
   padding: 26px 22px 28px;
-  overflow-y: auto; scrollbar-width: none;
 }
-.card.is-cover .card-body::-webkit-scrollbar,
-.card.is-closing .card-body::-webkit-scrollbar { display: none; }
 
 .cover-art { width: 100%; aspect-ratio: 16 / 9; border-radius: 12px; overflow: hidden; }
 .cover-art .art { height: 100%; border-radius: 12px; }
