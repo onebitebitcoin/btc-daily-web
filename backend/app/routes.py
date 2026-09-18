@@ -18,6 +18,7 @@ from app.db import get_db
 from app.models import CardLike, Edition
 from app.og import og_cache_path, og_image_bytes_to_jpeg, render_og_html, resolve_og_image_url
 from app.schemas import EditionContent
+from app.youtube import fill_card_thumbnails
 
 router = APIRouter(prefix="/api")
 
@@ -75,7 +76,9 @@ def get_latest_edition(request: Request, db: Session = Depends(get_db)) -> Respo
     edition = db.scalars(select(Edition).order_by(Edition.date.desc())).first()
     if edition is None:
         raise HTTPException(status_code=404, detail="no editions found")
-    return json_with_etag(request, edition.content, EDITION_CACHE_CONTROL)
+    return json_with_etag(
+        request, fill_card_thumbnails(edition.content), EDITION_CACHE_CONTROL
+    )
 
 
 @router.get("/editions")
@@ -89,8 +92,7 @@ def list_editions(request: Request, db: Session = Depends(get_db)) -> Response:
 def get_edition(
     date: datetime.date, request: Request, db: Session = Depends(get_db)
 ) -> Response:
-    edition = edition_or_404(db, date)
-    return json_with_etag(request, edition.content, EDITION_CACHE_CONTROL)
+    return json_with_etag(request, edition_content_or_404(db, date), EDITION_CACHE_CONTROL)
 
 
 def edition_or_404(db: Session, date: datetime.date) -> Edition:
@@ -98,6 +100,16 @@ def edition_or_404(db: Session, date: datetime.date) -> Edition:
     if edition is None:
         raise HTTPException(status_code=404, detail=f"no edition for date {date.isoformat()}")
     return edition
+
+
+def edition_content_or_404(db: Session, date: datetime.date) -> dict[str, Any]:
+    """발행분 내용을 내보낼 형태로 돌려준다.
+
+    유튜브 카드에 썸네일이 빠진 채 발행되는 일이 있어(app/youtube.py) 여기서 채운다.
+    카드 JSON·이미지 프록시·링크 미리보기가 모두 이 함수를 지나므로, 한 곳만 고쳐도
+    세 경로가 같은 그림을 본다.
+    """
+    return fill_card_thumbnails(edition_or_404(db, date).content)
 
 
 def has_card(content: dict[str, Any], num: int) -> bool:
@@ -171,11 +183,7 @@ def get_card_image(
     settings: Settings = Depends(get_settings),
 ) -> FileResponse:
     """카드 이미지를 WebP로 줄여 돌려준다 — 원본 URL은 받지 않는다(imgproxy 참고)."""
-    edition = db.get(Edition, date)
-    if edition is None:
-        raise HTTPException(status_code=404, detail=f"no edition for date {date.isoformat()}")
-
-    source_url = imgproxy.resolve_card_image_url(edition.content, num)
+    source_url = imgproxy.resolve_card_image_url(edition_content_or_404(db, date), num)
     if source_url is None:
         raise HTTPException(status_code=404, detail=f"no remote image for card {num}")
 
@@ -236,9 +244,7 @@ def og_image_file(
     # 캐시 키에 원본 URL 지문이 들어가므로 에디션을 먼저 읽어야 경로가 정해진다.
     # 캐시 히트에도 DB를 한 번 보게 되지만, 이 엔드포인트는 SNS 크롤러만 때리는
     # 저빈도 경로이고, 그 대가로 썸네일을 바꿔 재발행하면 캐시가 저절로 비켜난다.
-    edition = edition_or_404(db, date)
-
-    image_url = resolve_og_image_url(edition.content, card_index)
+    image_url = resolve_og_image_url(edition_content_or_404(db, date), card_index)
     if image_url is None:
         raise HTTPException(status_code=404, detail="no source image for this edition")
 
@@ -282,7 +288,9 @@ def get_og_html_latest(request: Request, db: Session = Depends(get_db)) -> HTMLR
     edition = db.scalars(select(Edition).order_by(Edition.date.desc())).first()
     if edition is None:
         raise HTTPException(status_code=404, detail="no editions found")
-    return HTMLResponse(render_og_html(edition.content, edition.date.isoformat(), request))
+    return HTMLResponse(
+        render_og_html(fill_card_thumbnails(edition.content), edition.date.isoformat(), request)
+    )
 
 
 @router.get("/og/{date}/{index}", response_class=HTMLResponse)
@@ -290,15 +298,13 @@ def get_og_html_card(
     date: datetime.date, index: int, request: Request, db: Session = Depends(get_db)
 ) -> HTMLResponse:
     """카드 한 장짜리 공유 링크(`/d/:date/:index`)가 받는 미리보기."""
-    edition = edition_or_404(db, date)
-    return HTMLResponse(render_og_html(edition.content, date.isoformat(), request, index))
+    content = edition_content_or_404(db, date)
+    return HTMLResponse(render_og_html(content, date.isoformat(), request, index))
 
 
 @router.get("/og/{date}", response_class=HTMLResponse)
 def get_og_html(
     date: datetime.date, request: Request, db: Session = Depends(get_db)
 ) -> HTMLResponse:
-    edition = db.get(Edition, date)
-    if edition is None:
-        raise HTTPException(status_code=404, detail=f"no edition for date {date.isoformat()}")
-    return HTMLResponse(render_og_html(edition.content, date.isoformat(), request))
+    content = edition_content_or_404(db, date)
+    return HTMLResponse(render_og_html(content, date.isoformat(), request))
