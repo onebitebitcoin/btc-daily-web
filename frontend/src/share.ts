@@ -22,7 +22,10 @@ export interface ShareCardInput {
 
 export function cardShareUrl({ date, index, origin }: ShareCardInput): string {
   const base = origin ?? window.location.origin;
-  return `${base}/d/${date}/${index}`;
+  // 서브패스에 올라간 사이트도 같은 코드로 맞는 주소를 만든다. 이 카드뉴스는 도메인
+  // 루트에 있어 BASE_URL 이 "/" 지만, 자매 사이트는 "/ai/" 밑에서 서빙한다.
+  const prefix = import.meta.env.BASE_URL.replace(/\/$/, '');
+  return `${base}${prefix}/d/${date}/${index}`;
 }
 
 export async function shareCard(input: ShareCardInput): Promise<ShareOutcome> {

@@ -8,6 +8,10 @@ const INPUT = {
   origin: 'https://example.test',
 };
 
+/** 이 사이트가 어느 경로에 올라가 있든 같은 기대값을 만든다.
+ *  도메인 루트면 빈 문자열, 서브패스(자매 사이트의 "/ai/")면 그 접두사가 붙는다. */
+const EXPECTED_URL = `https://example.test${import.meta.env.BASE_URL.replace(/\/$/, '')}/d/2026-09-18/3`;
+
 function stubNavigator(patch: Record<string, unknown>) {
   for (const [key, value] of Object.entries(patch)) {
     Object.defineProperty(navigator, key, { value, configurable: true, writable: true });
@@ -25,7 +29,7 @@ afterEach(() => {
 describe('cardShareUrl', () => {
   it('슬라이드 위치를 주소에 담는다', () => {
     // index 는 card.num 이 아니라 에디션 안의 슬라이드 위치다.
-    expect(cardShareUrl(INPUT)).toBe('https://example.test/d/2026-09-18/3');
+    expect(cardShareUrl(INPUT)).toBe(EXPECTED_URL);
   });
 });
 
@@ -35,10 +39,7 @@ describe('shareCard', () => {
     stubNavigator({ share });
 
     await expect(shareCard(INPUT)).resolves.toEqual({ kind: 'shared' });
-    expect(share).toHaveBeenCalledWith({
-      title: '세 번째 카드',
-      url: 'https://example.test/d/2026-09-18/3',
-    });
+    expect(share).toHaveBeenCalledWith({ title: '세 번째 카드', url: EXPECTED_URL });
   });
 
   it('사용자가 공유 시트를 닫으면 실패로 보지 않는다', async () => {
@@ -55,7 +56,7 @@ describe('shareCard', () => {
     stubNavigator({ clipboard: { writeText } });
 
     await expect(shareCard(INPUT)).resolves.toEqual({ kind: 'copied' });
-    expect(writeText).toHaveBeenCalledWith('https://example.test/d/2026-09-18/3');
+    expect(writeText).toHaveBeenCalledWith(EXPECTED_URL);
   });
 
   it('공유 시트가 열리지 않으면 클립보드로 넘어간다', async () => {
