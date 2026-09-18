@@ -84,6 +84,21 @@ body {
    다음 카드의 위가 동시에 보인다. 카드가 슬라이드를 꽉 채우게 해서 전환할 때
    한 장만 눈에 들어오게 한다. 늘어난 높이는 이미지 영역이 먹으므로(아래) 카드
    안에 빈 덩어리는 생기지 않는다. */
+/* 한국어는 어절 단위로 줄을 바꾼다.
+   브라우저 기본값(word-break: normal)은 CJK 에서 글자 단위 줄바꿈을 허용해서
+   "7만6000달러대" 가 "7만 / 6000달러대" 로 쪼개졌다. 숫자와 단위가 갈라지면
+   읽는 사람이 한 번 더 이어 붙여야 한다.
+
+   word-break 는 상속되므로 카드와 시트에 한 번만 걸면 그 안의 제목·본문·인용이
+   모두 따른다. 영문은 원래 단어 단위로 끊기므로 영향이 없다.
+
+   overflow-wrap 을 같이 주는 이유는, 끊을 곳이 없는 긴 문자열(URL, 붙여 쓴 영문
+   합성어)이 어절 단위 규칙 때문에 카드 밖으로 삐져나가는 것을 막기 위해서다. */
+.card, .sheet {
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
+
 .card {
   position: relative; width: 100%; max-width: var(--card-w);
   height: 100%;
@@ -312,7 +327,6 @@ body {
   font-family: 'Card Display', sans-serif; font-weight: 800;
   font-size: clamp(30px, 9.5vw, 40px);
   line-height: 1.02; color: var(--ink); margin: 0;
-  word-break: keep-all;
 }
 .closing-mark { font-size: clamp(24px, 7vw, 30px); }
 .cover-mark em { font-style: normal; color: var(--accent2); }
@@ -361,11 +375,10 @@ body {
   font-family: 'Card Display', sans-serif; font-weight: 800;
   font-size: 13px; line-height: 1.1; letter-spacing: -0.02em;
   color: var(--accent2); text-align: center;
-  padding: 0 5px; word-break: keep-all;
+  padding: 0 5px;
 }
 .cover-quote-text {
   margin: 0; font-size: 14px; line-height: 1.62; color: var(--ink);
-  word-break: keep-all;
 }
 .cover-quote-author {
   font-family: 'Card Text', monospace; font-size: 11px;
