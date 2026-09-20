@@ -156,4 +156,31 @@ describe('CardArt 대체 아트', () => {
     expect(container.querySelector('.art-type')).toBeNull();
     expect(container.querySelector('img')?.getAttribute('src')).toContain('/api/img/2026-08-05/4');
   });
+  // 삽화(기사 사진이 아닌 자료 사진)의 출처 표기. CC BY·BY-SA 는 저작자 표시가
+  // 라이선스 조건이라 화면에 실제로 나와야 한다 — 데이터만 들고 안 그리면
+  // 라이선스를 어긴 채 발행물이 나간다.
+  it('삽화에 credit 이 있으면 그림 위에 출처를 얹는다', () => {
+    const card = buildCard({
+      media: {
+        image: 'https://upload.wikimedia.org/x/farm.jpg',
+        href: null,
+        cta: null,
+        credit: 'Bitcoin mining farm · Marko Ahtisaari (CC BY 2.0)',
+      },
+    });
+    const { container } = render(<CardArt card={card} date={DATE} media={{}} shouldLoad />);
+
+    expect(container.querySelector('.art-credit')?.textContent).toBe(
+      'Bitcoin mining farm · Marko Ahtisaari (CC BY 2.0)',
+    );
+  });
+
+  it('기사 사진에는 출처 줄이 나오지 않는다', () => {
+    const card = buildCard({
+      media: { image: 'https://example.com/a.jpg', href: null, cta: null },
+    });
+    const { container } = render(<CardArt card={card} date={DATE} media={{}} shouldLoad />);
+
+    expect(container.querySelector('.art-credit')).toBeNull();
+  });
 });

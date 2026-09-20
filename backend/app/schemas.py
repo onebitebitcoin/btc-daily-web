@@ -79,6 +79,14 @@ class Media(_Strict):
     image: str
     href: str | None = None
     cta: str | None = None
+    # 기사 사진이 아니라 **삽화**일 때의 출처 표기. `scripts/find_illustration.py` 가
+    # 만들어 주는 문자열을 그대로 넣는다 — "제목 · 촬영자 (CC BY-SA 2.0)" 꼴이다.
+    #
+    # 선택 필드지만 삽화에는 사실상 필수다. by·by-sa 는 저작자 표시가 라이선스
+    # 조건이고, 카드 표면에 출처가 보여야 독자도 "사건을 찍은 사진이 아니라
+    # 자료 사진"이라는 것을 안다. push_edition.py 가 삽화 호스트를 알아보고
+    # credit 없이 나가는 것을 막는다.
+    credit: str | None = None
 
 
 class QA(_Strict):

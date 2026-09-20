@@ -10,6 +10,7 @@ Usage: python scripts/push_edition.py drafts/edition-2026-07-30.json
 import argparse
 import json
 import sys
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -89,6 +90,46 @@ def check_wording(content: EditionContent) -> None:
         )
 
 
+# 삽화(기사 사진이 아닌 자료 사진)가 올라오는 호스트. 여기서 온 그림은 출처 표기가
+# 라이선스 조건이라 credit 없이 내보내면 안 된다.
+#
+# 호스트로 판정하는 이유: 기사 URL 과 이미지 URL 의 도메인 비교로는 못 가른다 —
+# 매체가 이미지를 별도 CDN 에 두는 게 흔하다(tokenpost.kr 기사 / f1.tokenpost.kr 그림,
+# daum 기사 / img1.daumcdn.net 그림). 그래서 삽화가 실제로 오는 곳만 적어 둔다.
+# `scripts/find_illustration.py` 가 쓰는 Openverse 가 돌려주는 제공처가 이 둘이다.
+ILLUSTRATION_HOSTS = (
+    "staticflickr.com",
+    "upload.wikimedia.org",
+)
+
+
+def check_illustration_credit(content: EditionContent) -> None:
+    """삽화 호스트에서 온 그림은 `media.credit` 이 있어야 한다.
+
+    CC BY·BY-SA 는 저작자 표시가 라이선스 조건이다. 표기를 빠뜨리면 라이선스를
+    어긴 채로 발행물이 나가고, 독자도 그 그림이 사건을 찍은 사진인 줄 알게 된다.
+    `find_illustration.py` 가 만들어 주는 문자열을 그대로 넣으면 된다.
+    """
+    problems: list[str] = []
+    for card in content.cards:
+        media = card.media
+        if media is None:
+            continue
+        host = urllib.parse.urlparse(media.image).netloc.lower()
+        if not any(host.endswith(h) or h in host for h in ILLUSTRATION_HOSTS):
+            continue
+        if not (media.credit or "").strip():
+            problems.append(
+                f"카드 {card.num}: 삽화({host})인데 media.credit 이 없다 — "
+                f"scripts/find_illustration.py 가 준 credit 을 그대로 넣어라"
+            )
+    if problems:
+        joined = "\n".join(f"  - {p}" for p in problems)
+        raise SystemExit(
+            f"삽화 출처 게이트 실패 — 발행하지 않음 ({len(problems)}건):\n{joined}"
+        )
+
+
 def push(client: httpx.Client, api: str, api_key: str, body: dict[str, Any]) -> dict[str, Any]:
     response = client.post(
         f"{api}/api/editions",
@@ -113,6 +154,7 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None) -> d
     content = load_and_validate(args.edition_path)
     check_cover_matches_date(content)
     check_wording(content)
+    check_illustration_credit(content)
 
     if args.date and content.meta.date.isoformat() != args.date:
         raise SystemExit(

@@ -35,7 +35,13 @@ export interface Card {
   body: string;
   quote: string | null;
   link: { label: string; href: string } | null;
-  media: { image: string; href: string | null; cta: string | null } | null;
+  media: {
+    image: string;
+    href: string | null;
+    cta: string | null;
+    /** 기사 사진이 아니라 삽화일 때의 출처 표기. 그림 위에 작게 얹는다. */
+    credit?: string | null;
+  } | null;
   qa?: { question: string; answer: string; sources: string[] }[] | null;
   // 링크한 기사가 나온 시각(ISO). 카드에 "N시간 전"으로 표시한다.
   // 이 필드 없이 나간 발행분이 있어 optional 이다.

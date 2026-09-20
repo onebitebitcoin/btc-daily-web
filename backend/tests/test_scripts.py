@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 import pytest
 
+from app.schemas import EditionContent
 from scripts import collect_daily, generate_qa, push_edition, recent_editions
 
 NOW = datetime.datetime(2026, 7, 31, 3, 0, tzinfo=datetime.UTC)
@@ -1072,6 +1073,57 @@ def test_push_edition_rejects_cover_mark_contradicting_meta_date(tmp_path: Path)
             push_edition.main([str(edition_path)], client=client)
 
     assert called is False
+
+
+# ---- 삽화 출처 게이트 (push_edition.check_illustration_credit) ----
+#
+# 기사에서 이미지가 안 나오는 카드가 매 발행 나온다 — 2026-09-21 btc 발행은 10장 중
+# 5장이 그랬다. 그 자리를 키워드 삽화로 채우기로 하면서 생긴 게이트다.
+
+
+def _payload_with_media(image: str, credit: str | None) -> dict:
+    payload = reference_payload()
+    media = {"image": image, "href": None, "cta": None}
+    if credit is not None:
+        media["credit"] = credit
+    payload["cards"][0]["media"] = media
+    return payload
+
+
+def test_illustration_from_a_known_host_requires_credit() -> None:
+    """CC BY·BY-SA 는 저작자 표시가 라이선스 조건이다. 빠지면 발행을 막는다."""
+    content = EditionContent(
+        **_payload_with_media("https://upload.wikimedia.org/x/Bitcoin_farm.jpg", None)
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        push_edition.check_illustration_credit(content)
+
+    assert "카드 1" in str(exc.value) and "credit" in str(exc.value)
+
+
+def test_illustration_with_credit_passes() -> None:
+    content = EditionContent(
+        **_payload_with_media(
+            "https://live.staticflickr.com/1/2_b.jpg",
+            "Data Center · Cory M. Grenier (CC BY-SA 2.0)",
+        )
+    )
+
+    push_edition.check_illustration_credit(content)  # 예외가 없으면 통과다
+
+
+def test_article_photo_does_not_need_credit() -> None:
+    """매체 CDN 에서 온 기사 사진은 그대로 둔다 — 도메인이 기사와 달라도 삽화가 아니다.
+
+    tokenpost.kr 기사가 f1.tokenpost.kr 에 그림을 두는 식이 흔해서, 도메인 비교로
+    판정하면 멀쩡한 기사 사진이 전부 걸린다. 그래서 삽화 호스트만 보고 가른다.
+    """
+    content = EditionContent(
+        **_payload_with_media("https://f1.tokenpost.kr/2026/09/abc.jpg", None)
+    )
+
+    push_edition.check_illustration_credit(content)
 
 
 def test_push_edition_accepts_cover_matching_meta_date(

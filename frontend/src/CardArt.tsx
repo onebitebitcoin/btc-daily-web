@@ -44,12 +44,23 @@ export function CardArt({ card, date, media, shouldLoad }: CardArtProps) {
       </span>
     ) : null;
 
+  // 삽화(기사 사진이 아닌 자료 사진)는 출처를 그림 위에 얹는다. CC BY·BY-SA 의
+  // 저작자 표시 조건을 지키는 자리이자, 독자에게 "사건을 찍은 사진이 아니다"를
+  // 알리는 자리다. 기사 사진에는 credit 이 없으므로 이 줄도 안 나온다.
+  const credit = card.media.credit ? (
+    <span className="art-credit">{card.media.credit}</span>
+  ) : null;
+
   return card.media.href ? (
     <a className="art is-link" href={card.media.href} target="_blank" rel="noopener">
       {img}
       {badge}
+      {credit}
     </a>
   ) : (
-    <div className="art">{img}</div>
+    <div className="art">
+      {img}
+      {credit}
+    </div>
   );
 }

@@ -187,6 +187,20 @@ body {
   width: 0; height: 0; border-style: solid; border-width: 5px 0 5px 8px;
   border-color: transparent transparent transparent var(--accent);
 }
+
+/* 삽화 출처. 그림 왼쪽 아래에 얹는다 — 오른쪽 아래는 .art-badge(유튜브 CTA)가 쓴다.
+   둘이 같은 카드에 동시에 오는 경우는 없지만(유튜브 썸네일은 삽화가 아니다) 겹쳐도
+   자리가 안 부딪히게 반대편에 둔다.
+
+   글자를 작게 두되 읽히지 않을 만큼 줄이지는 않는다. CC BY·BY-SA 는 저작자 표시가
+   라이선스 조건이라, 안 보이는 크기로 깔면 조건을 지킨 것이 아니다. */
+.art-credit {
+  position: absolute; left: 10px; bottom: 10px; max-width: calc(100% - 96px);
+  background: rgba(10,11,12,0.72); color: #e8e2d6; font-family: 'Card Text', monospace;
+  font-size: 10px; line-height: 1.35; letter-spacing: 0.02em;
+  padding: 4px 8px; border-radius: 6px;
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
 .art-blank {
   display: flex; align-items: center; justify-content: center;
   font-family: 'Card Display', sans-serif; font-weight: 800; font-size: 56px;
