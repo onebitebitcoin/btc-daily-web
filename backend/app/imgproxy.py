@@ -33,6 +33,27 @@ MAX_SOURCE_BYTES = 16 * 1024 * 1024
 # Pillow 기본 경고 임계치보다 낮게 잡아 decompression bomb을 일찍 끊는다.
 MAX_SOURCE_PIXELS = 50_000_000
 
+# 원본을 받을 때 쓰는 요청 헤더.
+#
+# httpx 기본 UA(`python-httpx/x.y`)를 403·502로 막는 매체가 있다. 2026-09-21 실측:
+# live.staticflickr.com 이 그렇게 막아 카드 이미지 4장이 502로 깨졌고, 같은 URL도
+# 브라우저 UA면 200을 준다(ai-daily-web 이 2026-09-20 thequantuminsider.com 으로
+# 같은 문제를 먼저 겪고 고쳤는데 이 저장소엔 그 수정이 안 들어와 있었다). 기사
+# 페이지를 긁는 `scripts/collect_daily.py` 는 이미 이 UA를 쓰고 있었는데 이미지
+# 프록시만 빠져 있었다 — 그래서 여기 한 곳에 두고 양쪽이 같은 값을 쓴다.
+#
+# 받아오는 대상은 그 매체가 자기 기사에 띄워 둔 공개 썸네일이고, 카드에는 원문
+# 링크가 함께 붙는다. 링크 미리보기 봇이 하는 것과 같은 요청이다.
+BROWSER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
+# Accept 가 비면 이미지 대신 HTML 안내 페이지를 돌려주는 CDN이 있다.
+SOURCE_REQUEST_HEADERS = {
+    "User-Agent": BROWSER_UA,
+    "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+}
+
 
 class ImageTooLargeError(Exception):
     """원본이 상한을 넘었다 — 정상 뉴스 썸네일이 아니다."""
@@ -75,7 +96,13 @@ def cache_path(cache_dir: str, date_iso: str, num: int, width: int, url: str) ->
 
 def fetch_source(url: str) -> bytes:
     """원격 원본을 상한을 지키며 받아온다."""
-    with httpx.stream("GET", url, timeout=FETCH_TIMEOUT_SECONDS, follow_redirects=True) as resp:
+    with httpx.stream(
+        "GET",
+        url,
+        timeout=FETCH_TIMEOUT_SECONDS,
+        follow_redirects=True,
+        headers=SOURCE_REQUEST_HEADERS,
+    ) as resp:
         resp.raise_for_status()
         declared = resp.headers.get("content-length")
         if declared and int(declared) > MAX_SOURCE_BYTES:

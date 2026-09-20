@@ -1139,7 +1139,8 @@ def test_push_edition_accepts_cover_matching_meta_date(
         return httpx.Response(200, content=request.content)
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-        result = push_edition.main([str(edition_path)], client=client)
+        # 링크·이미지 검증은 바깥 네트워크를 두드린다 — 여기 관심사가 아니라 끈다.
+        result = push_edition.main([str(edition_path), "--skip-link-check"], client=client)
 
     assert result["cover"]["mark"] == ["7월 30일", "비트코인 카드뉴스"]
 
@@ -1169,9 +1170,86 @@ def test_push_edition_success_posts_validated_body(
         return httpx.Response(200, content=request.content)
 
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-        result = push_edition.main([str(edition_path)], client=client)
+        result = push_edition.main([str(edition_path), "--skip-link-check"], client=client)
 
     assert result["meta"]["date"] == "2026-07-30"
+
+
+# ---- push_edition.verify_published_images (발행 직후 이미지 프록시 실물 검증) ----
+#
+# check_links_and_images(verify_edition) 는 push 전에 원본 매체 URL 만 본다.
+# 2026-09-21 실측: 원본은 살아 있는데 이 서버의 imgproxy 만 staticflickr 에 막혀
+# 502 를 낸 카드 4장이 있었다 — 그 사고를 재현·회귀 방지한다.
+
+
+def _card_with_remote_image(num: int, url: str) -> dict[str, Any]:
+    payload = reference_payload()
+    payload["cards"][num - 1]["media"] = {
+        "image": url,
+        "href": None,
+        "cta": None,
+        "credit": "Test Photo (CC0)",
+    }
+    return payload
+
+
+def test_verify_published_images_raises_when_proxy_is_broken() -> None:
+    body = _card_with_remote_image(2, "https://live.staticflickr.com/x/y.jpg")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(502, text="bad gateway")
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        with pytest.raises(SystemExit, match="이미지 프록시"):
+            push_edition.verify_published_images(client, "http://api", body)
+
+
+def test_verify_published_images_passes_when_proxy_is_healthy() -> None:
+    body = _card_with_remote_image(2, "https://live.staticflickr.com/x/y.jpg")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"\x00", headers={"content-type": "image/webp"})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        push_edition.verify_published_images(client, "http://api", body)  # 예외 없으면 통과
+
+
+def test_verify_published_images_skips_bundle_asset_stems() -> None:
+    """`fed-macro` 같은 번들 asset stem 은 프록시를 거치지 않는다 — GET 자체가 없어야 한다."""
+    body = reference_payload()  # 카드 media 가 전부 번들 stem 이다
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        return httpx.Response(502)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        push_edition.verify_published_images(client, "http://api", body)
+
+    assert calls == []
+
+
+def test_push_edition_main_fails_when_published_image_proxy_is_broken(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """POST 는 성공했지만 이미지 프록시가 깨졌으면 push_edition 전체가 실패로 끝나야
+    한다 — 발행 자체는 이미 됐어도 non-zero exit 이라야 daily-cron.sh 의 실패
+    알림이 태워진다."""
+    body = _card_with_remote_image(2, "https://live.staticflickr.com/x/y.jpg")
+    edition_path = tmp_path / "edition.json"
+    edition_path.write_text(json.dumps(body), encoding="utf-8")
+    env_file = tmp_path / ".env"
+    env_file.write_text("ADMIN_API_KEY=secret\n", encoding="utf-8")
+    monkeypatch.setattr(push_edition, "ENV_FILE", env_file)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(200, content=request.content)
+        return httpx.Response(502, text="bad gateway")  # 발행 후 프록시 확인용 GET
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        with pytest.raises(SystemExit, match="이미지 프록시"):
+            push_edition.main([str(edition_path), "--skip-link-check"], client=client)
 
 
 # ---- generate_qa ----

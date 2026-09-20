@@ -1,7 +1,9 @@
 """Validate a finished edition JSON locally, then POST it to /api/editions.
 
 Local validation reuses the same pydantic schema the API enforces, so a bad
-field fails here with a clear message instead of round-tripping a 422.
+field fails here with a clear message instead of round-tripping a 422. 그 뒤
+verify_edition 이 카드마다 원문 링크와 이미지를 실제로 두드려 본다 — 죽은 링크,
+매체 홈페이지, 구글 리디렉션, 중복 이미지는 여기서 막힌다.
 
 Usage: python scripts/push_edition.py drafts/edition-2026-07-30.json
        python scripts/push_edition.py drafts/edition-2026-07-30.json --date 2026-07-30
@@ -28,6 +30,7 @@ if str(BACKEND_ROOT) not in sys.path:
 from app.schemas import EditionContent  # noqa: E402  (sys.path 조정 후여야 함)
 from app.wording import find_problems  # noqa: E402
 from scripts.collect_daily import apply_date_to_cover  # noqa: E402
+from scripts.verify_edition import check_edition, print_report  # noqa: E402
 
 ENV_FILE = BACKEND_ROOT / ".env"
 DEFAULT_API = "http://localhost:8002"
@@ -134,6 +137,81 @@ def check_illustration_credit(content: EditionContent) -> None:
         )
 
 
+def check_links_and_images(client: httpx.Client, body: dict[str, Any]) -> None:
+    """링크·이미지 검증(verify_edition). FAIL 이 하나라도 있으면 POST 하지 않는다.
+
+    스키마·커버·문구 게이트와 달리 이건 바깥 네트워크를 두드리므로 `--skip-link-check`
+    를 둔다 — 네트워크가 없는 자리에서 발행해야 할 때뿐이고, 켜 두는 게 기본이다.
+    확인이 안 되는 것(매체가 봇을 403 으로 막는 등)은 WARN 이라 발행을 막지 않는다.
+
+    2026-09-21까지 이 저장소엔 이 호출 자체가 없었다 — push_edition 이 스키마만
+    보고 그대로 POST 했다. 그날 카드 여러 장이 죽은 이미지·링크인 채로 발행됐다.
+    """
+    print("링크·이미지 검증:")
+    report = check_edition(body, client)
+    print_report(report)
+    if not report.ok:
+        raise SystemExit(
+            f"링크·이미지 검증 실패 — 발행하지 않음 ({len(report.fails)}건). "
+            "위 FAIL 을 고치고 다시 돌려라."
+        )
+
+
+def verify_published_images(client: httpx.Client, api: str, body: dict[str, Any]) -> None:
+    """발행 직후 **실제로 서비스되는 이미지 프록시**(`/api/img/{date}/{num}`)를
+    하나씩 두드려 200 이 오는지 확인한다.
+
+    `check_links_and_images`(verify_edition)는 push **전**에 원본 매체 URL 만
+    본다. 원본이 살아 있어도 이 서버의 `imgproxy.fetch_source` 가 그 원본에서
+    막힐 수 있다 — 2026-09-21 실측: live.staticflickr.com 이 httpx 기본
+    User-Agent 를 차단해 프록시가 502 를 냈는데, verify_edition 은 브라우저 UA 로
+    원본을 확인하므로 이 차이를 못 잡았다. 그리고 push 전에는 이 날짜 에디션이
+    서버에 아직 없어 프록시 경로 자체가 404 이므로, 반드시 push **뒤에** 실제
+    서빙 경로를 두드려야 한다.
+
+    문제가 있어도 발행을 되돌리지는 않는다(POST 는 이미 끝났다) — 대신 non-zero
+    exit 으로 끝내 daily-cron.sh 의 실패 알림을 그대로 태운다. 사람이 media 를
+    다른 그림으로 바꿔 재발행해야 한다.
+    """
+    date = body["meta"]["date"]
+    problems: list[str] = []
+    checked = 0
+    for card in body.get("cards", []):
+        media = card.get("media")
+        image = (media or {}).get("image") or ""
+        # 번들 asset stem(레퍼런스 fixture 가 쓰는 'fed-macro' 같은 것)은 프록시를
+        # 거치지 않고 프론트가 그대로 쓴다 — imgproxy.resolve_card_image_url 과
+        # 같은 조건이다. 원격 URL 이 아니면 확인할 프록시 경로 자체가 없다.
+        if not image.startswith("http"):
+            continue
+        num = card["num"]
+        checked += 1
+        url = f"{api}/api/img/{date}/{num}?w=800"
+        try:
+            response = client.get(url, timeout=20.0)
+        except httpx.HTTPError as exc:
+            problems.append(f"[{num:02d}] 이미지 프록시 확인 불가({type(exc).__name__}): {url}")
+            continue
+        if response.is_error:
+            problems.append(
+                f"[{num:02d}] 이미지 프록시가 {response.status_code} 를 준다"
+                f"(카드 이미지가 브라우저에서 깨져 보인다): {url}"
+            )
+        elif not response.headers.get("content-type", "").startswith("image/"):
+            problems.append(
+                f"[{num:02d}] 이미지 프록시가 이미지가 아닌 걸 준다"
+                f"({response.headers.get('content-type')}): {url}"
+            )
+    if problems:
+        joined = "\n".join(f"  - {p}" for p in problems)
+        raise SystemExit(
+            f"발행 후 이미지 프록시 확인 실패 — 발행은 이미 됐지만 카드 이미지가 깨져 "
+            f"보인다 ({len(problems)}/{checked}건). media 를 다른 그림으로 바꿔 "
+            f"재발행해라:\n{joined}"
+        )
+    print(f"발행 후 이미지 프록시 확인: {checked}장 전부 정상")
+
+
 def push(client: httpx.Client, api: str, api_key: str, body: dict[str, Any]) -> dict[str, Any]:
     response = client.post(
         f"{api}/api/editions",
@@ -150,6 +228,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("edition_path", type=Path)
     parser.add_argument("--api", default=DEFAULT_API)
     parser.add_argument("--date", help="검증용: 파일의 meta.date와 일치해야 함")
+    parser.add_argument(
+        "--skip-link-check",
+        action="store_true",
+        help="링크·이미지 검증을 건너뛴다. 네트워크가 없을 때만 쓴다",
+    )
     return parser.parse_args(argv)
 
 
@@ -170,9 +253,14 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None) -> d
 
     owns_client = client is None
     if owns_client:
-        client = httpx.Client(timeout=10.0)
+        client = httpx.Client(timeout=15.0)
     try:
+        if args.skip_link_check:
+            print("경고: --skip-link-check — 링크·이미지 검증을 건너뛴다", file=sys.stderr)
+        else:
+            check_links_and_images(client, body)
         result = push(client, args.api, api_key, body)
+        verify_published_images(client, args.api, result)
     finally:
         if owns_client:
             client.close()
