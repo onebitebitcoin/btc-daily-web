@@ -100,6 +100,10 @@ def check_wording(content: EditionContent) -> None:
 ILLUSTRATION_HOSTS = (
     "staticflickr.com",
     "upload.wikimedia.org",
+    # rawpixel 은 CC0 를 많이 주는데, CC0 는 저작자 표시가 법적 의무는 아니다.
+    # 그래도 목록에 넣는다 — 독자가 "사건을 찍은 사진이 아니라 자료 사진"임을
+    # 아는 것이 이 표기의 두 번째 일이고, 그건 라이선스와 무관하게 필요하다.
+    "images.rawpixel.com",
 )
 
 
