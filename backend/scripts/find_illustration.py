@@ -54,7 +54,8 @@ def search(query: str, n: int, min_width: int) -> list[dict]:
     params = {
         "q": query,
         # 걸러낸 뒤에도 n 개가 남도록 넉넉히 받는다.
-        "page_size": min(max(n * 4, 12), 40),
+        # Openverse 는 익명 요청의 page_size 상한이 20 이다 — 넘기면 401.
+        "page_size": min(max(n * 4, 12), 20),
         "license_type": "commercial,modification",
         "mature": "false",
     }
