@@ -25,7 +25,8 @@ router = APIRouter(prefix="/api")
 # 발행분은 재발행(upsert)으로 바뀔 수 있으니 영구 캐시는 못 쓴다. 5분 뒤부터는
 # 조건부 요청이 나가지만 내용이 그대로면 304 — 본문 0바이트다.
 EDITION_CACHE_CONTROL = "public, max-age=300, stale-while-revalidate=86400"
-# 변환 이미지는 원본 URL 해시가 캐시 키에 들어가므로 내용이 바뀌면 경로가 바뀐다.
+# 변환 이미지는 원본 URL 해시가 서버 캐시 키에 들어간다. 브라우저 쪽은 프런트가
+# 원본 URL 해시를 ?v= 로 붙여(imageUrl.ts) 그림이 바뀌면 주소가 바뀐다.
 IMAGE_CACHE_CONTROL = "public, max-age=86400, stale-while-revalidate=604800"
 # 좋아요는 누르는 즉시 값이 달라져야 하므로 어디에도 담아두지 않는다.
 LIKES_CACHE_CONTROL = "no-store"
