@@ -848,6 +848,19 @@ def test_filter_videos_exclude_ids_defaults_to_empty_tuple() -> None:
     assert [v["id"] for v in result] == ["a", "b"]
 
 
+def test_filter_videos_excludes_blocked_channels() -> None:
+    """운영자가 싣지 않기로 한 채널은 조회수와 무관하게 후보에서 빠진다 (2026-09-27)."""
+    items = [
+        make_video(id="blocked", channel_title="오태민의 비트모빅 BTCmobick", view_count=900),
+        make_video(id="renamed", channel_title="BTCmobick", view_count=800),
+        make_video(id="keep", channel_title="VirtualBacon", view_count=100),
+    ]
+
+    result = collect_daily.filter_videos(items, NOW)
+
+    assert [v["id"] for v in result] == ["keep"]
+
+
 def test_filter_videos_backfills_from_lower_ranked_after_exclusion() -> None:
     """상위권이 exclude_ids 로 빠지면 그 아래가 VIDEO_LIMIT(5)까지 올라와야 한다."""
     items = [make_video(id=str(i), view_count=100 - i) for i in range(7)]  # id "0" 이 최고 조회수

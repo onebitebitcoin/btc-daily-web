@@ -370,6 +370,10 @@ VIDEO_LIMIT = 15
 # 영상 창은 게시 시각 기준 48h. 24h 로 좁히면 my-youtube 가 요약을 늦게 끝낸 영상이
 # 통째로 빠진다 — 게시 25h 뒤에 요약이 붙는 경우가 흔하다.
 VIDEO_WINDOW_HOURS = 48
+# 카드·트렌딩 어디에도 싣지 않는 채널. my-youtube 가 채널 id 를 주지 않아
+# channel_title 부분일치로 거른다 — 표기가 바뀌어도 걸리도록 별칭을 함께 적는다.
+# (2026-09-27 운영자 요청: 오태민 채널 제외)
+BLOCKED_CHANNEL_KEYWORDS = ("오태민", "비트모빅", "BTCmobick")
 # 영상 일간 중복배제용 발행 이력 조회 기간. 영상 후보 창(48h) + 여유 하루.
 RECENT_VIDEO_DAYS = 3
 
@@ -1128,6 +1132,11 @@ def _closest_image_match(
     return best
 
 
+def is_blocked_channel(video: dict[str, Any]) -> bool:
+    title = str(video.get("channel_title") or "")
+    return any(keyword in title for keyword in BLOCKED_CHANNEL_KEYWORDS)
+
+
 def filter_videos(
     items: list[dict[str, Any]],
     now: datetime.datetime,
@@ -1158,6 +1167,7 @@ def filter_videos(
         and v.get("published_at")
         and _parse_dt(v["published_at"]) >= cutoff
         and v.get("id") not in excluded
+        and not is_blocked_channel(v)
     ]
     fresh.sort(key=lambda v: v.get("view_count", 0), reverse=True)
     return fresh[:VIDEO_LIMIT]
@@ -1198,6 +1208,7 @@ def trending_pool_videos(
         if v.get("topic") == "비트코인"
         and v.get("published_at")
         and _parse_dt(v["published_at"]) >= cutoff
+        and not is_blocked_channel(v)
     ]
 
 
