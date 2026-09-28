@@ -1,0 +1,4 @@
+# autoresearch 플러그인 scout-block 훅이 기본으로 .venv/ 와 *.log 를 막는다.
+# 무인 발행 세션이 가상환경 파이썬과 크론 로그를 못 읽어 우회 경로를 헤매지 않도록 연다.
+!.venv/
+!*.log

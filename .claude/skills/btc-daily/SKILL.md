@@ -28,13 +28,17 @@ description: 최근 24시간 my-news + my-youtube 데이터로 오늘자 비트�
 ### 1. 사전 확인
 
 ```bash
-curl -s localhost:8002/health          # {"status":"ok"} 여야 함
-curl -s -o /dev/null -w "%{http_code}" "http://localhost:8000/api/news?asset=btc&limit=1"
-curl -s -o /dev/null -w "%{http_code}" "http://localhost:23456/api/queue"
+curl -s -m 10 -o /dev/null -w "%{http_code}" "http://localhost:8000/api/news?asset=btc&limit=1"
+curl -s -m 10 -o /dev/null -w "%{http_code}" "http://localhost:23456/api/queue"
 ```
 
-백엔드가 안 떠 있으면 `bash scripts/dev.sh backend` 로 띄운다.
+curl에는 반드시 `-m`을 붙인다. 멈춘 서버에 타임아웃 없이 붙으면 셸 타임아웃(120초)까지 그대로 묶인다.
+
 소스(8000/23456)가 죽어 있으면 **거기서 멈추고 사용자에게 알린다** — 더미 데이터로 대체 금지.
+
+로컬 백엔드(8002)는 리허설(`--api` 생략)용이다. 프로덕션 발행은 2~7단계 스크립트가 모두
+`--api https://daily.onebitebitcoin.com`으로 직접 가므로 **8002를 확인하거나 재시작하지 않는다.**
+2026-09-29 무인 발행에서 멈춘 8002를 확인·재시작하느라 4분을 허비했다.
 
 ### 2. 수집
 
