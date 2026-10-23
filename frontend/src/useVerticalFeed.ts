@@ -137,6 +137,24 @@ export function useVerticalFeed(total: number, locked = false) {
     return () => track.removeEventListener('scrollend', onScrollEnd);
   }, [total, clearSettle]);
 
+  // 트랙 크기가 바뀌면(회전, 주소창 높이 변화) 슬라이드 높이도 같이 바뀌어 현재
+  // 카드가 두 장 사이에 걸친다. 예전에는 스냅이 되붙였지만 아이폰에서 이동을 끊어서
+  // 걷어냈으므로(feed.css 의 `.feed-track`) 여기서 현재 슬라이드에 다시 맞춘다.
+  // 이동 중에는 건드리지 않는다 — 그 위치는 goTo 가 책임진다.
+  useEffect(() => {
+    const track = trackRef.current;
+    if (!track || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      if (pendingRef.current !== null) return;
+      const slide = track.children[currentRef.current];
+      if (!slide) return;
+      const drift = slide.getBoundingClientRect().top - track.getBoundingClientRect().top;
+      if (drift !== 0) track.scrollTop += drift;
+    });
+    ro.observe(track);
+    return () => ro.disconnect();
+  }, [total]);
+
   useEffect(() => {
     const track = trackRef.current;
     if (!track || typeof IntersectionObserver === 'undefined') return;

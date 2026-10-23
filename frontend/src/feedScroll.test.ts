@@ -37,3 +37,16 @@ describe('표지·클로징 본문 스크롤', () => {
     expect(sheet).toMatch(/overscroll-behavior:\s*contain/);
   });
 });
+
+describe('세로 트랙', () => {
+  it('스냅을 걸지 않는다 — 아이폰에서 이동을 끊어 원래 카드로 되돌린다', () => {
+    // WebKit 은 스냅 컨테이너의 레이아웃이 바뀌면 진행 중인 부드러운 스크롤을 끊고
+    // 가까운 스냅 지점으로 되붙인다(2026-10-23 아이폰 제보, feed.css 해당 규칙 주석).
+    const bodies = [...ruleBodies('.feed-track'), ...ruleBodies('.slide')];
+
+    expect(bodies.length).toBeGreaterThan(0);
+    for (const body of bodies) {
+      expect(body).not.toMatch(/scroll-snap/);
+    }
+  });
+});

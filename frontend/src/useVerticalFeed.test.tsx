@@ -289,4 +289,35 @@ describe('useVerticalFeed', () => {
     expect(current()).toBe('0');
   });
 
+  it('트랙 크기가 바뀌면 현재 슬라이드 맨 위로 다시 맞춘다', () => {
+    // 스냅을 걷어낸 대신(feed.css 의 `.feed-track`) 회전·주소창 변화로 슬라이드 높이가
+    // 바뀌었을 때 카드가 두 장 사이에 걸치지 않도록 훅이 위치를 다시 맞춘다.
+    let fireResize: () => void = () => {};
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = class {
+      constructor(cb: () => void) {
+        fireResize = cb;
+      }
+      observe() {}
+      disconnect() {}
+    };
+    try {
+      render(<Feed total={3} />);
+      const track = screen.getByTestId('track');
+      let scrollTop = 500;
+      Object.defineProperty(track, 'scrollTop', {
+        get: () => scrollTop,
+        set: (v: number) => {
+          scrollTop = v;
+        },
+      });
+      track.getBoundingClientRect = () => ({ top: 0 }) as DOMRect;
+      (track.children[0] as HTMLElement).getBoundingClientRect = () => ({ top: -40 }) as DOMRect;
+
+      act(() => fireResize());
+
+      expect(scrollTop).toBe(460);
+    } finally {
+      delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+    }
+  });
 });
