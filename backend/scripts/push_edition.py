@@ -29,7 +29,13 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from app.schemas import EditionContent  # noqa: E402  (sys.path 조정 후여야 함)
 from app.wording import find_problems  # noqa: E402
-from scripts.collect_daily import apply_date_to_cover  # noqa: E402
+from scripts.collect_daily import (  # noqa: E402
+    IMAGE_HASH_MAX_DISTANCE,
+    apply_date_to_cover,
+    get_image_hash,
+    hamming_distance,
+)
+from scripts.recent_editions import fetch_dates, fetch_edition  # noqa: E402
 from scripts.verify_edition import check_edition, print_report  # noqa: E402
 
 ENV_FILE = BACKEND_ROOT / ".env"
@@ -132,9 +138,83 @@ def check_illustration_credit(content: EditionContent) -> None:
             )
     if problems:
         joined = "\n".join(f"  - {p}" for p in problems)
+        raise SystemExit(f"삽화 출처 게이트 실패 — 발행하지 않음 ({len(problems)}건):\n{joined}")
+
+
+# 섬네일로 내보내면 안 되는 호스트. 토큰포스트 본문 그림은 `/ TokenPost.ai` 크레딧이
+# 붙는 자체 AI 생성물이고, 삽화 호스트 그림은 사건을 찍은 사진이 아니다.
+AI_IMAGE_HOSTS = ("tokenpost.kr",)
+
+
+def check_og_image(content: EditionContent) -> None:
+    """`meta.og_image` 를 실사진으로 직접 골라 넣었는지 본다.
+
+    비워 두면 1번 카드 그림이 그대로 링크 미리보기가 된다 — 2026-10-24 에 블록미디어가
+    돌려쓰는 AI 만화가 그렇게 나갔다. 매체 CDN 의 AI 그림은 호스트로 다 못 거르므로,
+    고르는 기준(한국 기사 실사진 우선)은 CONTENT_CONTRACT.md 4.2절이 맡고 여기서는
+    비어 있는 것과 알려진 비실사 호스트만 막는다.
+    """
+    url = (content.meta.og_image or "").strip()
+    if not url.startswith("http"):
         raise SystemExit(
-            f"삽화 출처 게이트 실패 — 발행하지 않음 ({len(problems)}건):\n{joined}"
+            "섬네일 게이트 실패 — meta.og_image 가 비어 있다. "
+            "CONTENT_CONTRACT.md 4.2절대로 한국 기사 실사진을 골라 넣어라"
         )
+    host = urllib.parse.urlparse(url).netloc.lower()
+    for h in AI_IMAGE_HOSTS + ILLUSTRATION_HOSTS:
+        if host.endswith(h) or h in host:
+            raise SystemExit(
+                f"섬네일 게이트 실패 — meta.og_image({host})는 실사진이 아니다 "
+                f"(AI 생성물 또는 삽화). 기사 실사진으로 바꿔라"
+            )
+
+
+OG_REUSE_LOOKBACK_DAYS = 30
+
+
+def published_thumbnail(edition: dict[str, Any]) -> str | None:
+    """그 에디션이 실제로 내보낸 섬네일 URL — `app/og.py` 의 에디션 기준 선택과 같다."""
+    og_image = (edition.get("meta") or {}).get("og_image")
+    if og_image:
+        return og_image
+    cards = edition.get("cards") or []
+    media = (cards[0].get("media") or {}) if cards else {}
+    return media.get("image")
+
+
+def check_og_image_not_reused(client: httpx.Client, api: str, content: EditionContent) -> None:
+    """최근 발행분이 이미 쓴 섬네일을 다시 쓰지 않았는지 본다.
+
+    URL 이 같은 경우와, 매체가 같은 그림을 다른 URL 로 다시 올린 경우(average hash
+    해밍거리 `IMAGE_HASH_MAX_DISTANCE` 이하)를 둘 다 막는다. 발행 이력을 못 읽으면
+    경고만 하고 넘어간다 — 조회 실패로 06:00 무인 발행을 막을 일은 아니다.
+    """
+    url = content.meta.og_image or ""
+    try:
+        dates = fetch_dates(client, api, content.meta.date, OG_REUSE_LOOKBACK_DAYS)
+    except (httpx.HTTPError, SystemExit) as exc:
+        print(f"경고: 발행 이력을 못 읽어 섬네일 재사용 점검을 건너뛴다 ({exc!r})", file=sys.stderr)
+        return
+
+    hashes: dict[str, int] = {}
+    digest: int | None = None
+    for date in dates:
+        try:
+            edition = fetch_edition(client, api, date)
+        except httpx.HTTPError:
+            continue
+        previous = published_thumbnail(edition) if isinstance(edition, dict) else None
+        if not previous:
+            continue
+        if previous == url:
+            raise SystemExit(f"섬네일 게이트 실패 — {date} 에 이미 쓴 섬네일이다: {url}")
+        if digest is None:
+            digest = get_image_hash(client, url, hashes)
+            if digest is None:
+                return  # 새 섬네일을 못 내려받으면 그림 비교는 할 수 없다
+        old = get_image_hash(client, previous, hashes)
+        if old is not None and hamming_distance(digest, old) <= IMAGE_HASH_MAX_DISTANCE:
+            raise SystemExit(f"섬네일 게이트 실패 — {date} 섬네일과 같은 그림이다 ({previous})")
 
 
 def check_links_and_images(client: httpx.Client, body: dict[str, Any]) -> None:
@@ -242,11 +322,10 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None) -> d
     check_cover_matches_date(content)
     check_wording(content)
     check_illustration_credit(content)
+    check_og_image(content)
 
     if args.date and content.meta.date.isoformat() != args.date:
-        raise SystemExit(
-            f"meta.date({content.meta.date.isoformat()})가 --date({args.date})와 다름"
-        )
+        raise SystemExit(f"meta.date({content.meta.date.isoformat()})가 --date({args.date})와 다름")
 
     api_key = load_admin_api_key()
     body = content.model_dump(mode="json")
@@ -259,6 +338,7 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None) -> d
             print("경고: --skip-link-check — 링크·이미지 검증을 건너뛴다", file=sys.stderr)
         else:
             check_links_and_images(client, body)
+            check_og_image_not_reused(client, args.api, content)
         result = push(client, args.api, api_key, body)
         verify_published_images(client, args.api, result)
     finally:
