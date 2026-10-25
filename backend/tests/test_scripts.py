@@ -1161,21 +1161,43 @@ def test_og_image_is_required() -> None:
     assert "meta.og_image" in str(exc.value)
 
 
-@pytest.mark.parametrize(
-    "url",
-    [
-        "https://f1.tokenpost.kr/2026/10/2us9g57e38.jpg",
-        "https://live.staticflickr.com/7512/16250782696_b85de6bde5_b.jpg",
-    ],
-)
-def test_og_image_rejects_ai_and_illustration_hosts(url: str) -> None:
-    """토큰포스트 본문 그림은 자체 AI 생성물이고, 삽화는 사건을 찍은 사진이 아니다."""
-    content = EditionContent(**_payload_with_og_image(url))
+def test_og_image_rejects_ai_host() -> None:
+    """토큰포스트 본문 그림은 자체 AI 생성물이다."""
+    content = EditionContent(
+        **_payload_with_og_image("https://f1.tokenpost.kr/2026/10/2us9g57e38.jpg")
+    )
 
     with pytest.raises(SystemExit) as exc:
         push_edition.check_og_image(content)
 
-    assert "실사진" in str(exc.value)
+    assert "AI" in str(exc.value)
+
+
+ILLUSTRATION_URL = "https://live.staticflickr.com/7512/16250782696_b85de6bde5_b.jpg"
+
+
+def test_og_image_rejects_illustration_not_credited_on_a_card() -> None:
+    """섬네일에는 출처를 적을 자리가 없다 — 카드에 credit 과 함께 실려 있어야 한다."""
+    content = EditionContent(**_payload_with_og_image(ILLUSTRATION_URL))
+
+    with pytest.raises(SystemExit) as exc:
+        push_edition.check_og_image(content)
+
+    assert "credit" in str(exc.value)
+
+
+def test_og_image_accepts_illustration_credited_on_a_card() -> None:
+    """실사진이 주제와 동떨어진 날은 주제를 떠올리게 하는 삽화를 섬네일로 쓴다."""
+    payload = _payload_with_og_image(ILLUSTRATION_URL)
+    payload["cards"][0]["media"] = {
+        "image": ILLUSTRATION_URL,
+        "href": None,
+        "cta": None,
+        "credit": "Oil tanker · someone (CC BY 2.0)",
+    }
+    content = EditionContent(**payload)
+
+    push_edition.check_og_image(content)
 
 
 def test_og_image_accepts_article_photo() -> None:

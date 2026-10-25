@@ -142,30 +142,48 @@ def check_illustration_credit(content: EditionContent) -> None:
 
 
 # 섬네일로 내보내면 안 되는 호스트. 토큰포스트 본문 그림은 `/ TokenPost.ai` 크레딧이
-# 붙는 자체 AI 생성물이고, 삽화 호스트 그림은 사건을 찍은 사진이 아니다.
+# 붙는 자체 AI 생성물이다.
 AI_IMAGE_HOSTS = ("tokenpost.kr",)
 
 
+def _matches_host(host: str, hosts: tuple[str, ...]) -> bool:
+    return any(host.endswith(h) or h in host for h in hosts)
+
+
 def check_og_image(content: EditionContent) -> None:
-    """`meta.og_image` 를 실사진으로 직접 골라 넣었는지 본다.
+    """`meta.og_image` 를 직접 골라 넣었는지 본다.
 
     비워 두면 1번 카드 그림이 그대로 링크 미리보기가 된다 — 2026-10-24 에 블록미디어가
     돌려쓰는 AI 만화가 그렇게 나갔다. 매체 CDN 의 AI 그림은 호스트로 다 못 거르므로,
-    고르는 기준(한국 기사 실사진 우선)은 CONTENT_CONTRACT.md 4.2절이 맡고 여기서는
-    비어 있는 것과 알려진 비실사 호스트만 막는다.
+    고르는 기준(주제와 맞는 실사진 우선, 없으면 주제를 떠올리게 하는 삽화)은
+    CONTENT_CONTRACT.md 4.2절이 맡고 여기서는 비어 있는 것과 AI 호스트를 막는다.
+
+    삽화는 섬네일에 credit 을 표시할 자리가 없으므로, 같은 그림을 카드에도 싣고
+    그 카드의 `media.credit` 으로 저작자를 밝힌 경우에만 허용한다.
     """
     url = (content.meta.og_image or "").strip()
     if not url.startswith("http"):
         raise SystemExit(
             "섬네일 게이트 실패 — meta.og_image 가 비어 있다. "
-            "CONTENT_CONTRACT.md 4.2절대로 한국 기사 실사진을 골라 넣어라"
+            "CONTENT_CONTRACT.md 4.2절대로 골라 넣어라"
         )
     host = urllib.parse.urlparse(url).netloc.lower()
-    for h in AI_IMAGE_HOSTS + ILLUSTRATION_HOSTS:
-        if host.endswith(h) or h in host:
+    if _matches_host(host, AI_IMAGE_HOSTS):
+        raise SystemExit(
+            f"섬네일 게이트 실패 — meta.og_image({host})는 AI 생성물이다. "
+            f"기사 실사진이나 주제를 떠올리게 하는 삽화로 바꿔라"
+        )
+    if _matches_host(host, ILLUSTRATION_HOSTS):
+        credited = any(
+            card.media is not None
+            and card.media.image == url
+            and (card.media.credit or "").strip()
+            for card in content.cards
+        )
+        if not credited:
             raise SystemExit(
-                f"섬네일 게이트 실패 — meta.og_image({host})는 실사진이 아니다 "
-                f"(AI 생성물 또는 삽화). 기사 실사진으로 바꿔라"
+                f"섬네일 게이트 실패 — meta.og_image({host})는 삽화인데 같은 그림을 "
+                f"credit 과 함께 실은 카드가 없다. 그 삽화를 카드 media 에도 넣어라"
             )
 
 
