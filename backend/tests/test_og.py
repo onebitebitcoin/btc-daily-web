@@ -47,7 +47,7 @@ def test_og_image_generates_and_crops_to_1200x630(client, tmp_path, monkeypatch)
 
     calls = []
 
-    def fake_get(url, timeout=None, follow_redirects=None):
+    def fake_get(url, timeout=None, follow_redirects=None, headers=None):
         calls.append(url)
         fake_request = httpx.Request("GET", url)
         return httpx.Response(200, content=_fake_source_image_bytes(), request=fake_request)
@@ -68,7 +68,7 @@ def test_og_image_has_logo_badge_in_bottom_right(client, tmp_path, monkeypatch) 
     override_og_cache_dir(client, tmp_path)
     seed_edition(client.session_factory, _payload_with_image_url("2026-07-30"))
 
-    def fake_get(url, timeout=None, follow_redirects=None):
+    def fake_get(url, timeout=None, follow_redirects=None, headers=None):
         fake_request = httpx.Request("GET", url)
         return httpx.Response(200, content=_fake_source_image_bytes(), request=fake_request)
 
@@ -89,7 +89,7 @@ def test_og_image_second_request_hits_cache(client, tmp_path, monkeypatch) -> No
 
     calls = []
 
-    def fake_get(url, timeout=None, follow_redirects=None):
+    def fake_get(url, timeout=None, follow_redirects=None, headers=None):
         calls.append(url)
         fake_request = httpx.Request("GET", url)
         return httpx.Response(200, content=_fake_source_image_bytes(), request=fake_request)
@@ -113,7 +113,7 @@ def test_og_image_prefers_meta_og_image_over_card_one(client, tmp_path, monkeypa
 
     calls = []
 
-    def fake_get(url, timeout=None, follow_redirects=None):
+    def fake_get(url, timeout=None, follow_redirects=None, headers=None):
         calls.append(url)
         fake_request = httpx.Request("GET", url)
         return httpx.Response(200, content=_fake_source_image_bytes(), request=fake_request)
@@ -124,6 +124,26 @@ def test_og_image_prefers_meta_og_image_over_card_one(client, tmp_path, monkeypa
 
     assert response.status_code == 200
     assert calls == ["https://example.com/thumbnail.jpg"]
+
+
+def test_og_image_fetch_sends_browser_user_agent(client, tmp_path, monkeypatch) -> None:
+    """위키미디어는 httpx 기본 UA 를 403 으로 막는다 — 삽화 섬네일이 502 로 깨졌다."""
+    override_og_cache_dir(client, tmp_path)
+    seed_edition(client.session_factory, _payload_with_image_url("2026-07-30"))
+
+    sent_headers = []
+
+    def fake_get(url, timeout=None, follow_redirects=None, headers=None):
+        sent_headers.append(headers or {})
+        fake_request = httpx.Request("GET", url)
+        return httpx.Response(200, content=_fake_source_image_bytes(), request=fake_request)
+
+    monkeypatch.setattr("app.routes.httpx.get", fake_get)
+
+    response = client.get("/api/og/2026-07-30/image.jpg")
+
+    assert response.status_code == 200
+    assert sent_headers[0]["User-Agent"].startswith("Mozilla/5.0")
 
 
 def test_og_image_falls_back_to_card_one_when_override_absent(
@@ -137,7 +157,7 @@ def test_og_image_falls_back_to_card_one_when_override_absent(
 
     calls = []
 
-    def fake_get(url, timeout=None, follow_redirects=None):
+    def fake_get(url, timeout=None, follow_redirects=None, headers=None):
         calls.append(url)
         fake_request = httpx.Request("GET", url)
         return httpx.Response(200, content=_fake_source_image_bytes(), request=fake_request)
@@ -161,7 +181,7 @@ def test_og_image_rebuilds_when_source_changes(client, tmp_path, monkeypatch) ->
 
     calls = []
 
-    def fake_get(url, timeout=None, follow_redirects=None):
+    def fake_get(url, timeout=None, follow_redirects=None, headers=None):
         calls.append(url)
         fake_request = httpx.Request("GET", url)
         return httpx.Response(200, content=_fake_source_image_bytes(), request=fake_request)
