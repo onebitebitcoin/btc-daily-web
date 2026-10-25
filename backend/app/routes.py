@@ -5,14 +5,14 @@ import json
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from PIL import Image
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app import imgproxy
+from app import gauge, imgproxy
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.models import CardLike, Edition
@@ -316,3 +316,20 @@ def get_og_html(
 ) -> HTMLResponse:
     content = edition_content_or_404(db, date)
     return HTMLResponse(render_og_html(content, date.isoformat(), request))
+
+
+# 같은 값이면 언제나 같은 그림이다 — 값이 URL 에 들어 있으므로 영구 캐시해도 된다.
+GAUGE_CACHE_CONTROL = "public, max-age=31536000, immutable"
+
+
+@router.get("/gauge/fear-greed.png")
+def get_fear_greed_gauge(
+    value: int = Query(ge=0, le=100),
+    date: datetime.date | None = None,
+) -> Response:
+    """공포·탐욕 지수 카드에 붙일 계기판 그림(`app/gauge.py`)."""
+    return Response(
+        gauge.render_fear_greed_png(value, date),
+        media_type="image/png",
+        headers={"Cache-Control": GAUGE_CACHE_CONTROL},
+    )

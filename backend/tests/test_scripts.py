@@ -1,4 +1,5 @@
 import datetime
+import io
 import json
 from pathlib import Path
 from typing import Any
@@ -7,7 +8,7 @@ import httpx
 import pytest
 
 from app.schemas import EditionContent
-from scripts import collect_daily, generate_qa, push_edition, recent_editions
+from scripts import collect_daily, fear_greed, generate_qa, push_edition, recent_editions
 
 NOW = datetime.datetime(2026, 7, 31, 3, 0, tzinfo=datetime.UTC)
 
@@ -2321,3 +2322,26 @@ def test_trending_pool_news_drops_stale_articles_too() -> None:
     result = collect_daily.trending_pool_news(items, NOW)
 
     assert [n["url"] for n in result] == ["https://n/fresh"]
+
+
+# ---- 공포·탐욕 지수 계기판 URL (fear_greed.py) ----
+
+
+def test_fear_greed_gauge_url_pins_value_and_date() -> None:
+    url = fear_greed.gauge_url(46, datetime.date(2026, 10, 24), site="https://x")
+
+    assert url == "https://x/api/gauge/fear-greed.png?value=46&date=2026-10-24"
+
+
+def test_fear_greed_fetch_value_picks_requested_date(monkeypatch) -> None:
+    body = json.dumps({"data": [
+        {"value": "54", "timestamp": "2026-10-25"},
+        {"value": "51", "timestamp": "2026-10-24"},
+    ]}).encode()
+    monkeypatch.setattr(
+        fear_greed.urllib.request, "urlopen", lambda req, timeout=None: io.BytesIO(body)
+    )
+
+    assert fear_greed.fetch_value(datetime.date(2026, 10, 24)) == 51
+    with pytest.raises(LookupError):
+        fear_greed.fetch_value(datetime.date(2026, 9, 1))
