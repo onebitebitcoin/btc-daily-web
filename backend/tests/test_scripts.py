@@ -1295,6 +1295,28 @@ def test_og_image_new_picture_passes() -> None:
         push_edition.check_og_image_not_reused(client, "http://api", content)
 
 
+def test_card_image_from_ai_host_is_rejected() -> None:
+    """섬네일뿐 아니라 카드 그림에도 AI 생성물을 쓰지 않는다."""
+    payload = reference_payload()
+    payload["cards"][2]["media"] = {
+        "image": "https://f1.tokenpost.kr/2026/10/2us9g57e38.jpg",
+        "href": None,
+        "cta": None,
+    }
+    content = EditionContent(**payload)
+
+    with pytest.raises(SystemExit) as exc:
+        push_edition.check_card_images_not_ai(content)
+
+    assert "카드 3" in str(exc.value)
+
+
+def test_card_images_from_article_hosts_pass() -> None:
+    content = EditionContent(**reference_payload())
+
+    push_edition.check_card_images_not_ai(content)
+
+
 def test_push_edition_accepts_cover_matching_meta_date(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -150,6 +150,27 @@ def _matches_host(host: str, hosts: tuple[str, ...]) -> bool:
     return any(host.endswith(h) or h in host for h in hosts)
 
 
+def check_card_images_not_ai(content: EditionContent) -> None:
+    """카드 그림에도 AI 생성물 호스트를 쓰지 않는다.
+
+    AI 그림은 사건을 찍은 사진처럼 보이지만 실재하지 않는 장면이고, 글자가 깨진 채
+    나가기도 한다. 매체 CDN 에 섞인 AI 그림은 호스트로 다 못 거르므로 나머지는
+    CONTENT_CONTRACT.md 이미지 규칙의 "거르는 것" 목록을 보고 눈으로 거른다.
+    """
+    problems = [
+        f"카드 {card.num}: {urllib.parse.urlparse(card.media.image).netloc} 는 AI 생성물이다"
+        for card in content.cards
+        if card.media is not None
+        and _matches_host(urllib.parse.urlparse(card.media.image).netloc.lower(), AI_IMAGE_HOSTS)
+    ]
+    if problems:
+        joined = "\n".join(f"  - {p}" for p in problems)
+        raise SystemExit(
+            f"카드 그림 게이트 실패 — 발행하지 않음 ({len(problems)}건). "
+            f"기사 실사진이나 핵심 낱말 삽화로 바꿔라:\n{joined}"
+        )
+
+
 def check_og_image(content: EditionContent) -> None:
     """`meta.og_image` 를 직접 골라 넣었는지 본다.
 
@@ -340,6 +361,7 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None) -> d
     check_cover_matches_date(content)
     check_wording(content)
     check_illustration_credit(content)
+    check_card_images_not_ai(content)
     check_og_image(content)
 
     if args.date and content.meta.date.isoformat() != args.date:
