@@ -22,9 +22,10 @@ from app.youtube import fill_card_thumbnails
 
 router = APIRouter(prefix="/api")
 
-# 발행분은 재발행(upsert)으로 바뀔 수 있으니 영구 캐시는 못 쓴다. 5분 뒤부터는
-# 조건부 요청이 나가지만 내용이 그대로면 304 — 본문 0바이트다.
-EDITION_CACHE_CONTROL = "public, max-age=300, stale-while-revalidate=86400"
+# 발행분은 새로 올라오거나 재발행(upsert)으로 바뀐다. 매 요청 ETag 로 재검증하고,
+# 내용이 그대로면 304 — 본문 0바이트다. 예전 값(max-age=300, stale-while-revalidate=
+# 86400)은 발행 직후 방문자에게 발행 전 목록을 한 번 더 보여줬다(2026-09-28).
+EDITION_CACHE_CONTROL = "public, no-cache"
 # 변환 이미지는 원본 URL 해시가 서버 캐시 키에 들어간다. 브라우저 쪽은 프런트가
 # 원본 URL 해시를 ?v= 로 붙여(imageUrl.ts) 그림이 바뀌면 주소가 바뀐다.
 IMAGE_CACHE_CONTROL = "public, max-age=86400, stale-while-revalidate=604800"

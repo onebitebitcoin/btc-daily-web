@@ -225,7 +225,18 @@ def test_edition_response_carries_etag_and_cache_control(client) -> None:
     response = client.get("/api/editions/2026-07-30")
 
     assert response.headers["etag"].startswith('"')
-    assert "max-age" in response.headers["cache-control"]
+    assert response.headers["cache-control"] == "public, no-cache"
+
+
+def test_list_and_latest_always_revalidate(client) -> None:
+    """새 발행분이 다음 방문에 바로 보여야 한다. 예전엔 stale-while-revalidate 때문에
+    발행 전 목록이 한 번 더 보였다 (2026-09-28 위클리 퀀텀 홈이 9/20 에 머묾)."""
+    seed_edition(client.session_factory, reference_payload("2026-07-30"))
+
+    for path in ("/api/editions", "/api/editions/latest"):
+        cache_control = client.get(path).headers["cache-control"]
+
+        assert cache_control == "public, no-cache"
 
 
 def test_matching_if_none_match_returns_304_with_empty_body(client) -> None:
