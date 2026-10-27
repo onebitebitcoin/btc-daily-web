@@ -332,3 +332,45 @@ def test_cover_quote_requires_an_id_for_next_day_dedup() -> None:
 
     with pytest.raises(ValidationError):
         EditionContent.model_validate(payload)
+
+
+# ---------- 카드 화제성(trend_rank / pinned) ----------
+
+
+def test_card_without_trend_fields_still_validates() -> None:
+    """이 필드 없이 나간 과거 발행분이 그대로 통과해야 한다."""
+    content = EditionContent.model_validate(reference_payload())
+
+    assert content.cards[0].trend_rank is None
+    assert content.cards[0].pinned is None
+
+
+def test_card_accepts_trend_rank_and_pinned_with_trending_block() -> None:
+    payload = reference_payload()
+    payload["trending"] = _trending_block()
+    payload["cards"][0]["pinned"] = True
+    payload["cards"][1]["trend_rank"] = 2
+
+    content = EditionContent.model_validate(payload)
+
+    assert content.cards[0].pinned is True
+    assert content.cards[1].trend_rank == 2
+
+
+@pytest.mark.parametrize("rank", [0, 11])
+def test_card_rejects_trend_rank_outside_trending_range(rank: int) -> None:
+    payload = reference_payload()
+    payload["trending"] = _trending_block()
+    payload["cards"][1]["trend_rank"] = rank
+
+    with pytest.raises(ValidationError):
+        EditionContent.model_validate(payload)
+
+
+def test_card_trend_rank_requires_a_trending_block() -> None:
+    """가리킬 트렌딩 항목이 없으면 카드에 막대를 그릴 수 없다."""
+    payload = reference_payload()
+    payload["cards"][1]["trend_rank"] = 2
+
+    with pytest.raises(ValidationError, match="trend_rank"):
+        EditionContent.model_validate(payload)

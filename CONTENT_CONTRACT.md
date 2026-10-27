@@ -40,6 +40,8 @@
 | | `media.image` | str | media 있으면 ✓ | stem 또는 URL, [4장](#4-이미지-규칙) 참고 |
 | | `media.href`, `media.cta` | str \| null | | 없으면 `media: null` |
 | | `media.credit` | str \| null | 삽화면 ✓ | 기사 사진이 아닌 **자료 사진**일 때의 출처 표기. `find_illustration.py` 가 만들어 주는 문자열을 그대로 넣는다. `push_edition.py` 가 삽화 호스트를 알아보고 credit 없이 나가는 것을 막는다 (5.0절 4번) |
+| | `trend_rank` | int \| null | | 1~10. 이 카드 사건이 걸린 24시간 트렌딩(`trending.items`)의 가장 높은 `rank`. 카드 제목 아래 화제성 막대로 그려지며, 토픽 이름·heat·매체 수는 프론트가 `trending`에서 찾는다. 값이 있으면 `trending` 블록이 반드시 있어야 한다(없으면 422). 트렌딩에 안 걸린 카드는 생략한다 |
+| | `pinned` | bool \| null | | 사용자 지정 뉴스(`pinned/<날짜>.md`)로 실린 카드면 `true`. 트렌딩에 안 걸린 지정 뉴스는 막대 대신 "지정 뉴스" 표시만 나간다 |
 | `closing` | `eyebrow` | str | ✓ | |
 | | `mark_lines` | list[str] | ✓ | 마지막 줄만 강조색 |
 | | `links` | list[Link] | ✓ | 각 원소 `label`/`href` 모두 필수 |

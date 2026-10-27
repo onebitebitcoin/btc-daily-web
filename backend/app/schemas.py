@@ -107,6 +107,14 @@ class Card(_Strict):
     link: Link | None = None
     media: Media | None = None
     qa: list[QA] | None = None
+    # 카드 화제성. 그날 24시간 트렌딩(EditionContent.trending)에서 이 카드 사건이 걸린
+    # 가장 높은 순위다. 토픽 이름·heat·매체 수는 복사하지 않고 프론트가 trending 에서
+    # 찾아 그린다 — 두 군데 적으면 카드 막대와 트렌딩 슬라이드 막대가 어긋날 수 있다.
+    # 이 필드 없이 나간 과거 발행분이 있으므로 optional 이어야 한다.
+    trend_rank: int | None = Field(default=None, ge=1, le=10)
+    # 사용자 지정 뉴스(pinned/<날짜>.md)로 실린 카드. 트렌딩에 안 걸려도 맨 앞에 있는
+    # 이유를 카드에 드러낸다.
+    pinned: bool | None = None
     #  링크한 기사가 나온 시각. 카드에 "N시간 전"으로 조판된다. 데일리 카드뉴스는
     #  24시간 안의 소식으로 만들지만(collect_daily.NEWS_MAX_AGE_HOURS), 그 사실은
     #  독자에게 안 보인다 — 카드마다 얼마나 새 소식인지 드러내려고 싣는다.
@@ -186,3 +194,12 @@ class EditionContent(_Strict):
     cards: list[Card]
     closing: Closing
     trending: Trending | None = None
+
+    @model_validator(mode="after")
+    def _check_card_trend_ranks(self) -> "EditionContent":
+        ranked = [card.num for card in self.cards if card.trend_rank is not None]
+        if ranked and self.trending is None:
+            raise ValueError(
+                f"trend_rank 가 있는 카드({ranked})는 trending 블록이 있어야 한다"
+            )
+        return self

@@ -4,6 +4,7 @@ import { DetailSheet } from './DetailSheet';
 import { FeedChrome } from './FeedChrome';
 import { FeedNav } from './FeedNav';
 import { CardSlide } from './slides/CardSlide';
+import { cardTrend } from './content';
 import { ClosingSlide } from './slides/ClosingSlide';
 import { CoverSlide } from './slides/CoverSlide';
 import { ErrorSlide } from './slides/ErrorSlide';
@@ -302,6 +303,7 @@ export function ShortsFeed({ startDate, startIndex }: ShortsFeedProps) {
               liked={likedKeys.has(key)}
               onToggleLike={() => toggleLike(slide.date, slide.card!.num)}
               onShare={() => shareSlide(slide)}
+              trend={cardTrend(slide.card!, slide.content!.trending)}
             />
           );
         })}

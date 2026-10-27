@@ -43,6 +43,10 @@ export interface Card {
     credit?: string | null;
   } | null;
   qa?: { question: string; answer: string; sources: string[] }[] | null;
+  /** 이 카드 사건이 걸린 24시간 트렌딩 최고 순위(1~10). 토픽·heat 는 trending 에서 찾는다(cardTrend). */
+  trend_rank?: number | null;
+  /** 사용자 지정 뉴스로 실린 카드. */
+  pinned?: boolean | null;
   // 링크한 기사가 나온 시각(ISO). 카드에 "N시간 전"으로 표시한다.
   // 이 필드 없이 나간 발행분이 있어 optional 이다.
   published_at?: string | null;
@@ -116,4 +120,11 @@ export function hasMoreToRead(card: Card): boolean {
     Boolean(card.quote) ||
     Boolean(card.qa && card.qa.length > 0)
   );
+}
+
+/** 카드가 가리키는 트렌딩 항목. 카드에는 순위만 싣고 나머지는 트렌딩 블록 한 곳에서 읽는다 —
+ *  두 군데 적으면 카드 막대와 트렌딩 슬라이드 막대가 어긋날 수 있다. */
+export function cardTrend(card: Card, trending: Trending | null | undefined): TrendingItem | null {
+  if (card.trend_rank == null || !trending) return null;
+  return trending.items.find((item) => item.rank === card.trend_rank) ?? null;
 }

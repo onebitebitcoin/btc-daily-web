@@ -273,6 +273,16 @@ body {
 }
 .titles .secondary { font-size: 13px; color: var(--ink-dim); font-weight: 500; }
 
+/* 카드 화제성 줄. 막대는 트렌딩 슬라이드의 .trending-bar-* 를 그대로 쓴다. */
+.card-heat { display: flex; flex-direction: column; gap: 5px; }
+.card-heat-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.card-heat-label {
+  font-family: 'Card Text', monospace; font-size: 10px; letter-spacing: 0.08em;
+  color: var(--accent-strong); font-weight: 700; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.card-heat-meta { font-size: 11px; color: var(--ink-dim); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
 .chips-row { display: flex; gap: 6px; flex-wrap: wrap; }
 .chips-row .cl {
   font-family: 'Card Text', monospace; font-size: 10px; color: var(--ink-dim);

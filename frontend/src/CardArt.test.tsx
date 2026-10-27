@@ -104,6 +104,7 @@ describe('CardArt 대체 아트', () => {
         liked={false}
         onToggleLike={() => {}}
         onShare={() => {}}
+        trend={null}
       />,
     );
 
@@ -131,6 +132,7 @@ describe('CardArt 대체 아트', () => {
         liked={false}
         onToggleLike={() => {}}
         onShare={() => {}}
+        trend={null}
       />,
     );
 

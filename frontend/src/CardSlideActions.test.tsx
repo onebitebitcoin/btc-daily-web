@@ -37,6 +37,7 @@ function renderSlide(props: Partial<Parameters<typeof CardSlide>[0]> = {}) {
       liked={false}
       onToggleLike={onToggleLike}
       onShare={onShare}
+      trend={null}
       {...props}
     />,
   );
