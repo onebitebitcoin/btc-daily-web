@@ -68,6 +68,36 @@ def load_and_validate(path: Path) -> EditionContent:
         raise SystemExit(f"스키마 검증 실패 — 서버로 전송하지 않음:\n{exc}") from exc
 
 
+# 뉴스 카드 장수. 이 뒤에 붙는 카드(지식 한입·활용팁 같은 고정 꼭지)는 정렬하지 않고
+# 맨 끝에 그대로 둔다.
+NEWS_CARD_COUNT = 10
+
+
+def order_cards_by_trend(content: EditionContent) -> EditionContent:
+    """뉴스 카드를 지정 뉴스 → 트렌딩 순위 오름차순 → 트렌딩 무관 순으로 다시 매긴다.
+
+    순서를 스킬 지시로만 맡겼더니 시황 카드를 1번에 고정하는 등 발행분이 트렌딩
+    순위와 어긋났다(2026-10-28 실측). 발행 직전에 코드로 강제한다. 같은 묶음 안에서는
+    draft 에 적힌 순서를 유지한다(지정 뉴스는 파일 순서, 무관 카드는 작성자 판단).
+    """
+    news = [card for card in content.cards if card.num <= NEWS_CARD_COUNT]
+    extras = [card for card in content.cards if card.num > NEWS_CARD_COUNT]
+
+    def sort_key(card: Any) -> tuple[int, int]:
+        if card.pinned:
+            return (0, 0)
+        if card.trend_rank is not None:
+            return (1, card.trend_rank)
+        return (2, 0)
+
+    ordered = sorted(news, key=sort_key) + extras
+    renumbered = [card.model_copy(update={"num": i}) for i, card in enumerate(ordered, 1)]
+    if [card.num for card in ordered] != [card.num for card in renumbered]:
+        moves = ", ".join(f"{card.num}→{i}" for i, card in enumerate(ordered, 1) if card.num != i)
+        print(f"카드 순서를 트렌딩 순위대로 바꿈: {moves}")
+    return content.model_copy(update={"cards": renumbered})
+
+
 def check_cover_matches_date(content: EditionContent) -> None:
     """cover.mark/meta[2]는 meta.date에서 파생돼야 한다 — 드리프트를 발행 전에 잡는다.
 
@@ -357,7 +387,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None, client: httpx.Client | None = None) -> dict[str, Any]:
     args = parse_args(argv)
-    content = load_and_validate(args.edition_path)
+    content = order_cards_by_trend(load_and_validate(args.edition_path))
     check_cover_matches_date(content)
     check_wording(content)
     check_illustration_credit(content)

@@ -2367,3 +2367,55 @@ def test_fear_greed_fetch_value_picks_requested_date(monkeypatch) -> None:
     assert fear_greed.fetch_value(datetime.date(2026, 10, 24)) == 51
     with pytest.raises(LookupError):
         fear_greed.fetch_value(datetime.date(2026, 9, 1))
+
+
+# ---- 카드 순서 강제 (push_edition.order_cards_by_trend) ----
+#
+# 2026-10-28 발행분은 시황 카드(트렌딩 7위)가 1번에 고정돼 트렌딩 순위와 어긋났다.
+
+
+def _ordering_payload(specs: list[dict[str, Any]]) -> dict[str, Any]:
+    from tests.test_schemas import _trending_block
+
+    payload = reference_payload()
+    template = payload["cards"][0]
+    payload["cards"] = [
+        {**template, "num": num, "title": f"카드 {num}", **spec}
+        for num, spec in enumerate(specs, 1)
+    ]
+    payload["trending"] = _trending_block()
+    return payload
+
+
+def test_order_cards_puts_pinned_then_trend_rank_then_unranked() -> None:
+    specs = [
+        {"trend_rank": 7},
+        {"trend_rank": 1},
+        {},
+        {"pinned": True},
+        {"trend_rank": 4},
+        {},
+        {"trend_rank": 1},
+        {"trend_rank": 10},
+        {"pinned": True, "trend_rank": 9},
+        {"trend_rank": 5},
+        {},
+    ]
+    content = EditionContent(**_ordering_payload(specs))
+
+    ordered = push_edition.order_cards_by_trend(content)
+
+    assert [card.title for card in ordered.cards] == [
+        "카드 4", "카드 9", "카드 2", "카드 7", "카드 5", "카드 10",
+        "카드 1", "카드 8", "카드 3", "카드 6", "카드 11",
+    ]
+    assert [card.num for card in ordered.cards] == list(range(1, 12))
+
+
+def test_order_cards_keeps_already_sorted_edition() -> None:
+    specs = [{"trend_rank": r} for r in range(1, 11)] + [{}]
+    content = EditionContent(**_ordering_payload(specs))
+
+    ordered = push_edition.order_cards_by_trend(content)
+
+    assert ordered.cards == content.cards
