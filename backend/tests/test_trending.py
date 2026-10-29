@@ -368,3 +368,42 @@ def test_english_source_tags_are_stopwords_too() -> None:
     result = rank_topics(items, [], NOW)
 
     assert [r["topic"] for r in result] == ["클래리티 법안"]
+
+
+# ---- score_terms (카드 화제성) ----
+
+
+def test_score_terms_matches_terms_in_titles_and_counts_sources() -> None:
+    from app.trending import score_terms
+
+    news = [
+        make_news([], source_ref="A", title="고래 숏 포지션 전환"),
+        make_news([], source_ref="B", title="Bitcoin whales turn short"),
+        make_news([], source_ref="C", title="연준 금리 동결"),
+    ]
+
+    signal = score_terms(["고래", "whales"], news, [], NOW)
+
+    assert (signal["mentions"], signal["sources"]) == (2, 2)
+    assert signal["score"] > 0
+
+
+def test_score_terms_returns_zero_when_nothing_matches() -> None:
+    from app.trending import score_terms
+
+    signal = score_terms(["해시레이트"], [make_news([], title="연준 금리 동결")], [], NOW)
+
+    assert signal["mentions"] == 0
+    assert signal["score"] == 0.0
+
+
+def test_score_terms_uses_same_scale_as_rank_topics() -> None:
+    """같은 항목을 모으면 rank_topics 의 토픽 점수와 같아야 막대 눈금이 맞는다."""
+    from app.trending import score_terms
+
+    news = [make_news(["연준"], source_ref=s, title=f"연준 기사 {s}") for s in "ABC"]
+
+    [topic] = rank_topics(news, [], NOW)
+    signal = score_terms(["연준"], news, [], NOW)
+
+    assert signal["score"] == topic["score"]

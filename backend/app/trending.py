@@ -418,3 +418,70 @@ def rank_topics(
             }
         )
     return result
+
+
+def score_terms(
+    terms: Collection[str],
+    news: list[dict[str, Any]],
+    videos: list[dict[str, Any]],
+    now: datetime.datetime,
+    tweets: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """카드 한 장의 사건을 검색어로 정의해 24시간 코퍼스에서 화제성을 잰다.
+
+    트렌딩은 태그 단위라 해시레이트·고래 포지션 같은 개별 사건은 상위 15개 토픽
+    어디에도 안 걸린다(2026-10-29: 카드 10장 중 2장만 순위에 걸림). 카드마다 사건을
+    가리키는 검색어를 받아 제목·태그·요약에 하나라도 나오는 항목을 모으고,
+    `_score_all` 의 같은 공식으로 점수를 낸다. 그래서 `rank_topics` 의 score 와 같은
+    눈금이다.
+
+    "비트코인"처럼 모든 글에 나오는 말은 STOPWORDS 와 같은 이유로 받지 않는다 —
+    그 말 하나로 모든 카드가 100 이 된다.
+    """
+    clean = [t.strip() for t in terms if t.strip()]
+    if not clean:
+        raise ValueError("검색어가 비었다")
+    generic = [t for t in clean if t.lower() in STOPWORDS]
+    if generic:
+        raise ValueError(f"변별력 없는 검색어: {generic} — 사건을 가리키는 말을 써라")
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=KST)
+
+    def hit(*fields: Any) -> bool:
+        text = " ".join(str(f) for f in fields if f)
+        return any(_mentions_term(text, term) for term in clean)
+
+    topic = "card"
+    acc = _Accumulator()
+    for item in news:
+        if hit(item.get("title"), item.get("summary"), " ".join(item.get("tags") or [])):
+            acc.add(
+                topic,
+                item.get("source_ref"),
+                _parse_kst(item.get("published_at")),
+                item.get("title"),
+                url=item.get("url"),
+            )
+    for item in videos:
+        if hit(item.get("title")):
+            acc.add(
+                topic,
+                item.get("channel_title"),
+                _parse_kst(item.get("published_at")),
+                item.get("title"),
+                views=item.get("view_count") or 0,
+            )
+    for item in tweets or []:
+        if hit(item.get("title"), item.get("summary"), item.get("text")):
+            acc.add_tweet(topic, _parse_kst(item.get("time") or item.get("crawled_at")))
+
+    if not acc.mentions:
+        return {"score": 0.0, "mentions": 0, "sources": 0, "tweet_mentions": 0, "titles": []}
+    entry = _score_all(acc, now)[0]
+    return {
+        "score": round(entry["score"], 4),
+        "mentions": entry["mentions"],
+        "sources": entry["sources"],
+        "tweet_mentions": entry["tweet_mentions"],
+        "titles": [a["title"] for a in entry["examples"]],
+    }

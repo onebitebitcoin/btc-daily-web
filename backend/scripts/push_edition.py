@@ -74,11 +74,13 @@ NEWS_CARD_COUNT = 10
 
 
 def order_cards_by_trend(content: EditionContent) -> EditionContent:
-    """뉴스 카드를 지정 뉴스 → 트렌딩 순위 오름차순 → 트렌딩 무관 순으로 다시 매긴다.
+    """뉴스 카드를 지정 뉴스 → 트렌딩 순위 오름차순 → 카드 화제성 내림차순 → 나머지
+    순으로 다시 매긴다.
 
     순서를 스킬 지시로만 맡겼더니 시황 카드를 1번에 고정하는 등 발행분이 트렌딩
-    순위와 어긋났다(2026-10-28 실측). 발행 직전에 코드로 강제한다. 같은 묶음 안에서는
-    draft 에 적힌 순서를 유지한다(지정 뉴스는 파일 순서, 무관 카드는 작성자 판단).
+    순위와 어긋났다(2026-10-28 실측). 발행 직전에 코드로 강제한다. 트렌딩 순위에
+    안 걸린 카드는 `heat.score`(card_heat.py)로 줄 세운다. 같은 묶음 안에서는 draft 에
+    적힌 순서를 유지한다(지정 뉴스는 파일 순서).
     """
     news = [card for card in content.cards if card.num <= NEWS_CARD_COUNT]
     extras = [card for card in content.cards if card.num > NEWS_CARD_COUNT]
@@ -88,7 +90,9 @@ def order_cards_by_trend(content: EditionContent) -> EditionContent:
             return (0, 0)
         if card.trend_rank is not None:
             return (1, card.trend_rank)
-        return (2, 0)
+        if card.heat is not None:
+            return (2, -card.heat.score)
+        return (3, 0)
 
     ordered = sorted(news, key=sort_key) + extras
     renumbered = [card.model_copy(update={"num": i}) for i, card in enumerate(ordered, 1)]
@@ -143,6 +147,8 @@ ILLUSTRATION_HOSTS = (
     # 그래도 목록에 넣는다 — 독자가 "사건을 찍은 사진이 아니라 자료 사진"임을
     # 아는 것이 이 표기의 두 번째 일이고, 그건 라이선스와 무관하게 필요하다.
     "images.rawpixel.com",
+    # find_illustration.py 가 2026-10-29 부터 쓰는 출처.
+    "images.unsplash.com",
 )
 
 
@@ -198,6 +204,92 @@ def check_card_images_not_ai(content: EditionContent) -> None:
         raise SystemExit(
             f"카드 그림 게이트 실패 — 발행하지 않음 ({len(problems)}건). "
             f"기사 실사진이나 핵심 낱말 삽화로 바꿔라:\n{joined}"
+        )
+
+
+# 유튜브 섬네일 호스트. 섬네일은 클릭을 끌려고 제목·숫자·트윗 캡처를 크게 얹어 만들어서
+# 거의 다 "글자가 주인 그림"이다(2026-10-28 ai-daily 5번 "AI CRISIS IN MATH", 10번
+# "1.5T tokens"). 눈으로 거르라는 규칙만으로는 계속 새어 나가서 호스트째 막는다.
+YOUTUBE_THUMBNAIL_HOSTS = ("ytimg.com",)
+
+
+def check_no_youtube_thumbnails(content: EditionContent) -> None:
+    """카드 그림과 섬네일(`meta.og_image`)에 유튜브 섬네일을 쓰지 않는다.
+
+    유튜브 카드는 영상의 핵심 낱말로 `find_illustration.py` 삽화를 찾아 붙인다.
+    """
+    images = [(f"카드 {card.num}", card.media.image) for card in content.cards if card.media]
+    if content.meta.og_image:
+        images.append(("meta.og_image", content.meta.og_image))
+    problems = [
+        f"{where}: {url}"
+        for where, url in images
+        if _matches_host(urllib.parse.urlparse(url).netloc.lower(), YOUTUBE_THUMBNAIL_HOSTS)
+    ]
+    if problems:
+        joined = "\n".join(f"  - {p}" for p in problems)
+        raise SystemExit(
+            f"유튜브 섬네일 게이트 실패 — 발행하지 않음 ({len(problems)}건). "
+            "섬네일은 글자가 주인 그림이다. 핵심 낱말 삽화(find_illustration.py)로 바꿔라:\n"
+            f"{joined}"
+        )
+
+
+# 새 발행에 쓰지 않는 삽화 호스트. 위키미디어는 발행 서버(데이터센터 IP)에서 원본을
+# 받으면 429 를 연달아 줘서 2026-10-29 삽화 6장 중 4장이 글자판으로 나갔다. 운영자
+# 지시로 Unsplash(find_illustration.py)로 바꿨다. 과거 발행분은 이미지 프록시가 계속 받는다.
+BLOCKED_ILLUSTRATION_HOSTS = ("wikimedia.org",)
+
+
+def check_no_blocked_illustration_hosts(content: EditionContent) -> None:
+    """카드 그림과 섬네일에 위키미디어를 쓰지 않는다."""
+    images = [(f"카드 {card.num}", card.media.image) for card in content.cards if card.media]
+    if content.meta.og_image:
+        images.append(("meta.og_image", content.meta.og_image))
+    problems = [
+        f"{where}: {url}"
+        for where, url in images
+        if _matches_host(urllib.parse.urlparse(url).netloc.lower(), BLOCKED_ILLUSTRATION_HOSTS)
+    ]
+    if problems:
+        joined = "\n".join(f"  - {p}" for p in problems)
+        raise SystemExit(
+            f"위키미디어 그림 게이트 실패 — 발행하지 않음 ({len(problems)}건). "
+            "발행 서버가 위키미디어에서 429 를 받는다. find_illustration.py(Unsplash)로 바꿔라:\n"
+            f"{joined}"
+        )
+
+
+def check_cards_have_media(content: EditionContent) -> None:
+    """모든 카드에 그림이 있어야 한다.
+
+    `media: null` 카드는 프론트가 문구를 조판해 채우는 글자판(`CardArtFallback`)이 된다.
+    "최후 수단"으로 열어 뒀더니 무인 발행이 삽화를 못 받을 때마다 그 출구로 빠졌다
+    (2026-10-29: 11장 중 5장이 글자판). 사건을 특정하는 카드도 발표 주체의 건물·로고는
+    있으니 그림이 없는 카드는 없다.
+    """
+    missing = [card.num for card in content.cards if card.media is None]
+    if missing:
+        raise SystemExit(
+            f"카드 그림 누락 게이트 실패 — 발행하지 않음 (카드 {missing}). "
+            "그림 없는 카드는 글자판으로 나간다. 핵심 낱말 삽화(find_illustration.py)나 "
+            "발표 주체의 건물·로고 사진을 붙여라."
+        )
+
+
+def check_news_cards_have_heat(content: EditionContent) -> None:
+    """뉴스 카드마다 화제성(`heat`)이 있어야 한다 — 카드 화제성 막대가 이 값으로 그려진다.
+
+    `trend_rank` 만으로는 트렌딩 상위 토픽에 걸린 카드만 막대를 받는다(2026-10-29:
+    10장 중 2장). `scripts/card_heat.py` 로 카드마다 센다.
+    """
+    missing = [
+        card.num for card in content.cards if card.num <= NEWS_CARD_COUNT and card.heat is None
+    ]
+    if missing:
+        raise SystemExit(
+            f"카드 화제성 게이트 실패 — 발행하지 않음 (카드 {missing}). "
+            "scripts/card_heat.py 로 카드마다 heat 를 넣어라."
         )
 
 
@@ -392,6 +484,10 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None) -> d
     check_wording(content)
     check_illustration_credit(content)
     check_card_images_not_ai(content)
+    check_no_youtube_thumbnails(content)
+    check_no_blocked_illustration_hosts(content)
+    check_cards_have_media(content)
+    check_news_cards_have_heat(content)
     check_og_image(content)
 
     if args.date and content.meta.date.isoformat() != args.date:

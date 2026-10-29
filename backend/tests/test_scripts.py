@@ -22,6 +22,12 @@ def reference_payload(date: str = "2026-07-30") -> dict[str, Any]:
         payload["cover"], datetime.date.fromisoformat(date)
     )
     payload["meta"]["og_image"] = "https://cdn.hidomin.com/news/photo/202610/1.jpg"
+    # 발행 게이트는 모든 카드에 그림을, 뉴스 카드에 화제성을 요구한다. 기준 픽스처는
+    # 프론트와 함께 쓰여 손대지 않고 여기서 채운다.
+    for card in payload["cards"]:
+        card.setdefault("heat", {"score": 50, "mentions": 3, "sources": 2})
+        if card.get("media") is None:
+            card["media"] = {"image": "quantum", "href": None, "cta": None}
     return payload
 
 
@@ -2419,3 +2425,279 @@ def test_order_cards_keeps_already_sorted_edition() -> None:
     ordered = push_edition.order_cards_by_trend(content)
 
     assert ordered.cards == content.cards
+
+
+# ---- 유튜브 섬네일 게이트 (push_edition.check_no_youtube_thumbnails) ----
+
+
+def test_card_image_from_youtube_thumbnail_is_rejected() -> None:
+    """섬네일은 제목·숫자를 크게 얹은 글자 그림이라 카드에 쓰지 않는다."""
+    payload = reference_payload()
+    payload["cards"][4]["media"] = {
+        "image": "https://i.ytimg.com/vi/ZAzWPE9CItg/hqdefault.jpg",
+        "href": None,
+        "cta": None,
+    }
+    content = EditionContent(**payload)
+
+    with pytest.raises(SystemExit) as exc:
+        push_edition.check_no_youtube_thumbnails(content)
+
+    assert "카드 5" in str(exc.value)
+
+
+def test_og_image_from_youtube_thumbnail_is_rejected() -> None:
+    payload = reference_payload()
+    payload["meta"]["og_image"] = "https://i.ytimg.com/vi/FHGfSjDGUIw/hqdefault.jpg"
+    content = EditionContent(**payload)
+
+    with pytest.raises(SystemExit) as exc:
+        push_edition.check_no_youtube_thumbnails(content)
+
+    assert "meta.og_image" in str(exc.value)
+
+
+def test_cards_without_youtube_thumbnails_pass() -> None:
+    content = EditionContent(**reference_payload())
+
+    push_edition.check_no_youtube_thumbnails(content)
+
+
+def test_order_cards_ranks_unranked_cards_by_heat() -> None:
+    """트렌딩 순위에 안 걸린 카드는 카드 화제성(heat.score) 내림차순으로 선다."""
+
+    def heat(score: int) -> dict[str, int]:
+        return {"score": score, "mentions": 1, "sources": 1}
+
+    specs = [
+        {"heat": heat(10)},
+        {"trend_rank": 3, "heat": heat(5)},
+        {"heat": heat(80)},
+        {"pinned": True, "heat": heat(1)},
+        {"heat": heat(40)},
+    ]
+    content = EditionContent(**_ordering_payload(specs))
+
+    ordered = push_edition.order_cards_by_trend(content)
+
+    assert [card.title for card in ordered.cards] == [
+        "카드 4", "카드 2", "카드 3", "카드 5", "카드 1",
+    ]
+
+
+# ---- 카드 그림·화제성·위키미디어 게이트 ----
+
+
+def test_card_without_media_is_rejected() -> None:
+    """media: null 카드는 글자판으로 나간다(2026-10-29: 11장 중 5장)."""
+    payload = reference_payload()
+    payload["cards"][6]["media"] = None
+    content = EditionContent(**payload)
+
+    with pytest.raises(SystemExit) as exc:
+        push_edition.check_cards_have_media(content)
+
+    assert "[7]" in str(exc.value)
+
+
+def test_news_card_without_heat_is_rejected() -> None:
+    payload = reference_payload()
+    del payload["cards"][2]["heat"]
+    content = EditionContent(**payload)
+
+    with pytest.raises(SystemExit) as exc:
+        push_edition.check_news_cards_have_heat(content)
+
+    assert "[3]" in str(exc.value)
+
+
+def test_wikimedia_card_image_is_rejected() -> None:
+    payload = reference_payload()
+    payload["cards"][3]["media"] = {
+        "image": "https://upload.wikimedia.org/wikipedia/commons/3/32/Googleplex.jpg",
+        "href": None,
+        "cta": None,
+        "credit": "Googleplex (CC BY-SA 4.0)",
+    }
+    content = EditionContent(**payload)
+
+    with pytest.raises(SystemExit) as exc:
+        push_edition.check_no_blocked_illustration_hosts(content)
+
+    assert "카드 4" in str(exc.value)
+
+
+def test_unsplash_illustration_needs_credit() -> None:
+    payload = reference_payload()
+    payload["cards"][3]["media"] = {
+        "image": "https://images.unsplash.com/photo-1?ixid=abc&w=1600",
+        "href": None,
+        "cta": None,
+    }
+    content = EditionContent(**payload)
+
+    with pytest.raises(SystemExit):
+        push_edition.check_illustration_credit(content)
+
+
+# ---- collect_daily.trending_pool ----
+
+
+def test_trending_pool_keeps_only_counting_fields() -> None:
+    news = [
+        {"title": "해시레이트 고점", "tags": ["채굴"], "source_ref": "A", "raw_html": "x" * 100}
+    ]
+
+    end = datetime.datetime(2026, 10, 28, 20, 2, tzinfo=datetime.UTC)
+
+    pool = collect_daily.trending_pool(news, [], [], end)
+
+    assert pool == {
+        "window_end": "2026-10-28T20:02:00+00:00",
+        "news": [{"title": "해시레이트 고점", "tags": ["채굴"], "source_ref": "A"}],
+        "videos": [],
+        "tweets": [],
+    }
+
+
+# ---- card_heat ----
+
+
+def _heat_draft() -> dict[str, Any]:
+    news = [
+        {"title": "비트코인 해시레이트 작년 고점 근접", "source_ref": "A",
+         "published_at": "2026-10-29T03:00:00"},
+        {"title": "Bitcoin hashrate nears record", "source_ref": "B",
+         "published_at": "2026-10-29T02:00:00"},
+        {"title": "연준 금리 동결", "source_ref": "C", "published_at": "2026-10-29T04:00:00"},
+    ]
+    return {
+        "trending_candidates": [{"topic": "연준", "score": 10.0}],
+        "trending_pool": {"news": news, "videos": [], "tweets": []},
+    }
+
+
+def _heat_edition() -> dict[str, Any]:
+    cards = [{"num": 1, "title": "해시레이트"}, {"num": 2, "title": "연준"},
+             {"num": 11, "title": "지식 한입"}]
+    return {"meta": {"date": "2026-10-29"}, "cards": cards}
+
+
+def test_card_heat_counts_matching_items_and_skips_knowledge_card() -> None:
+    from scripts import card_heat
+
+    heats = card_heat.compute_heats(
+        _heat_edition(),
+        _heat_draft(),
+        {"1": ["해시레이트", "hashrate"], "2": ["연준"]},
+        card_heat.window_end({}, "2026-10-29"),
+    )
+
+    assert set(heats) == {1, 2}
+    assert (heats[1]["mentions"], heats[1]["sources"]) == (2, 2)
+    assert heats[2]["mentions"] == 1
+    assert heats[1]["heat"] > heats[2]["heat"]
+    assert all(0 <= h["heat"] <= 100 for h in heats.values())
+
+
+def test_card_heat_requires_terms_for_every_news_card() -> None:
+    from scripts import card_heat
+
+    with pytest.raises(SystemExit) as exc:
+        card_heat.compute_heats(
+            _heat_edition(), _heat_draft(), {"1": ["해시레이트"]},
+            card_heat.window_end({}, "2026-10-29"),
+        )
+
+    assert "[2]" in str(exc.value)
+
+
+def test_card_heat_rejects_generic_terms() -> None:
+    """'비트코인' 하나로는 모든 카드가 100 이 된다."""
+    from scripts import card_heat
+
+    with pytest.raises(SystemExit) as exc:
+        card_heat.compute_heats(
+            _heat_edition(), _heat_draft(), {"1": ["비트코인"], "2": ["연준"]},
+            card_heat.window_end({}, "2026-10-29"),
+        )
+
+    assert "카드 1" in str(exc.value)
+
+
+def test_card_heat_main_writes_heat_into_edition(tmp_path: Path) -> None:
+    from scripts import card_heat
+
+    edition_path = tmp_path / "edition.json"
+    edition_path.write_text(json.dumps(_heat_edition(), ensure_ascii=False), encoding="utf-8")
+    draft_path = tmp_path / "draft.json"
+    draft_path.write_text(json.dumps(_heat_draft(), ensure_ascii=False), encoding="utf-8")
+    terms_path = tmp_path / "terms.json"
+    terms_path.write_text(json.dumps({"1": ["hashrate"], "2": ["연준"]}), encoding="utf-8")
+
+    card_heat.main([str(edition_path), "--terms", str(terms_path), "--draft", str(draft_path)])
+
+    cards = json.loads(edition_path.read_text(encoding="utf-8"))["cards"]
+    assert cards[0]["heat"]["mentions"] == 1
+    assert "heat" not in cards[2]
+
+
+# ---- find_illustration (Unsplash) ----
+
+
+def _unsplash_photo(**overrides: Any) -> dict[str, Any]:
+    base = {
+        "width": 6000,
+        "height": 4000,
+        "alt_description": "rows of servers in a data center",
+        "user": {"name": "Jane Doe"},
+        "urls": {"raw": "https://images.unsplash.com/photo-1?ixid=abc"},
+        "links": {
+            "html": "https://unsplash.com/photos/x1",
+            "download_location": "https://api.unsplash.com/photos/x1/download?ixid=abc",
+        },
+    }
+    return {**base, **overrides}
+
+
+def test_find_illustration_builds_resized_url_and_credit() -> None:
+    from scripts import find_illustration
+
+    [result] = find_illustration.pick([_unsplash_photo()], n=5, min_width=900)
+
+    assert result["url"].startswith("https://images.unsplash.com/photo-1?ixid=abc&")
+    assert "w=1600" in result["url"]
+    assert result["credit"] == "Jane Doe · Unsplash"
+    assert result["download_location"].endswith("/download?ixid=abc")
+    assert result["looks_like_person"] is False
+
+
+def test_find_illustration_flags_people_and_drops_narrow_photos() -> None:
+    from scripts import find_illustration
+
+    results = find_illustration.pick(
+        [_unsplash_photo(alt_description="portrait of a man at a desk"),
+         _unsplash_photo(width=600)],
+        n=5,
+        min_width=900,
+    )
+
+    assert len(results) == 1
+    assert results[0]["looks_like_person"] is True
+
+
+def test_find_illustration_track_rejects_non_unsplash_url() -> None:
+    from scripts import find_illustration
+
+    with pytest.raises(SystemExit):
+        find_illustration.track_download("https://evil.example/x", "key")
+
+
+def test_card_heat_window_end_comes_from_draft() -> None:
+    from scripts import card_heat
+
+    draft = {"trending_pool": {"window_end": "2026-10-28T20:02:00+00:00"}}
+
+    assert card_heat.window_end(draft, "2026-10-29") == datetime.datetime(
+        2026, 10, 28, 20, 2, tzinfo=datetime.UTC
+    )

@@ -260,17 +260,24 @@ python scripts/find_illustration.py "bitcoin mining farm" --n 5
 python scripts/find_illustration.py "bitcoin mining farm"
 ```
 
-영문 검색어가 결과가 훨씬 많다. 출력의 `image`를 `media.image`에,
-`credit`을 `media.credit`에 **그대로** 넣는다.
+검색 출처는 Unsplash 다(`UNSPLASH_ACCESS_KEY`, `backend/.env`). 영문 검색어가 결과가
+훨씬 많다. 출력의 `image`를 `media.image`에, `credit`을 `media.credit`에 **그대로**
+넣는다. 카드에 실제로 고른 사진은 출력의 `track` 주소로
+`python scripts/find_illustration.py --track <track 주소>` 를 한 번 돌린다(Unsplash API
+약관의 다운로드 이벤트). 데모 키는 시간당 50회라 한 카드에 검색어를 서너 번 이상
+바꾸지 않는다. Pexels 는 2026-10-29 기준 신규 API 키 발급이 중단돼 쓰지 않는다.
+
+**위키미디어 그림은 쓰지 않는다.** 발행 서버가 위키미디어 원본을 받으면 429 를 연달아
+받아, 2026-10-29 삽화 6장 중 4장이 글자판으로 나갔다. `push_edition.py` 가
+`wikimedia.org` 그림을 막는다. 예전 Openverse 검색도 같은 날 500·504 를 반복해 뺐다.
 
 지킬 것 둘이다.
 
-1. **출처 표기를 빼지 마라.** CC BY·BY-SA는 저작자 표시가 라이선스 조건이다.
-   `push_edition.py`의 삽화 게이트가 credit 없는 삽화를 POST 전에 막는다.
+1. **출처 표기를 빼지 마라.** 독자가 "사건을 찍은 사진이 아니라 자료 사진"임을 알게
+   하는 표기다. `push_edition.py`의 삽화 게이트가 credit 없는 삽화를 POST 전에 막는다.
 2. **`[인물?]` 표시가 붙은 후보는 카드 주인공 본인이 아니면 고르지 마라.**
-   검색이 사람 사진을 섞어 준다 — 실측으로 "data center servers" 질의에
-   `Shaku Atre in 2016`(실존 인물 초상)이 올라왔다. 기사와 무관한 사람이
-   사건의 당사자처럼 읽힌다.
+   검색이 사람 사진을 섞어 준다 — 실측으로 "data center servers" 질의에 실존 인물
+   초상이 올라왔다. 기사와 무관한 사람이 사건의 당사자처럼 읽힌다.
 
 삽화는 **기사 사진이 아니다.** "이미지와 `link`는 같은 기사에서 나온다" 규칙은
 그대로다 — 다른 매체의 기사 사진을 가져다 붙이는 것은 여전히 금지다. 삽화는
@@ -303,12 +310,16 @@ python scripts/fear_greed.py --date 2026-10-24 --value 46 --source EBN  # 기사
 매체마다 산출처가 달라 2026-10-24 EBN 은 46, alternative.me 는 51이었다.
 
 사건을 특정하는 카드(누가 무엇을 발표했다, 이 사람이 이렇게 말했다)에는 일반
-삽화를 쓰지 마라. 삽화가 증거처럼 읽힌다. 발표 주체의 건물·로고까지만 쓰고,
-그것도 없으면 `media: null`로 둔다.
+삽화를 쓰지 마라. 삽화가 증거처럼 읽힌다. 발표 주체의 건물·로고(예: `google office`,
+`coinbase app`)를 쓴다.
 
-**`media: null` 은 핵심 낱말 검색까지 해 보고 맞는 그림이 없을 때만 쓴다.** 그때는
-시도한 검색어를 발행 보고에 적는다. 2026-10-25 7·8번 카드는 찾아보지 않고 비워 둬서
-글자판으로 나갔다.
+**`media: null` 은 쓰지 않는다.** 그림 없는 카드는 프런트가 문구를 조판한 글자판이 되고,
+`push_edition.py` 가 그런 카드를 막는다. "최후 수단"으로 열어 뒀더니 무인 발행이 삽화를
+못 받을 때마다 그 출구로 빠졌다(2026-10-25 7·8번, 2026-10-29 11장 중 5장). 검색어가
+안 맞으면 더 넓은 핵심 낱말로 바꿔 다시 찾는다(고래 포지션 → `ocean whale`, 해시레이트
+→ `bitcoin mining rig`, 양자 계산 → `quantum computer`). 이미지 프록시
+(`/api/img/<date>/<num>`)가 발행 직후 일시적으로 502 를 줘도 그림을 빼지 않는다 —
+프록시는 요청마다 다시 받는다.
 
 ### 3.1. 최근 발행분 대비 중복 점검 — **필수 단계**
 
@@ -413,7 +424,7 @@ python scripts/recent_editions.py --api https://daily.onebitebitcoin.com
 | `body` | **200자 내외** 한국어, **했습니다체**. 숫자와 고유명사를 살린다 |
 | `quote` | 한 줄 촌철살인, **했습니다체**. 없으면 `null` (전부 채우지 말 것 — 8~9개 정도) |
 | `link` | `{label: "<매체명> 원문", href: 후보의 url}` |
-| `media` | `{image: ..., href: null, cta: null}`. 고르는 순서는 `CONTENT_CONTRACT.md` **4.0절**을 따른다 — 후보의 `image_url`은 정답이 아니라 3순위다. 없거나 범용 그림이면 핵심 낱말 삽화(4순위), 그래도 없을 때만 `media: null` |
+| `media` | `{image: ..., href: null, cta: null}`. 고르는 순서는 `CONTENT_CONTRACT.md` **4.0절**을 따른다 — 후보의 `image_url`은 정답이 아니라 3순위다. 없거나 범용 그림이면 핵심 낱말 삽화(4순위). `media: null` 은 쓰지 않는다(발행 게이트가 막는다) |
 | `published_at` | **후보의 `published_at`을 그대로 옮긴다.** 카드에 "3시간 전"으로 조판된다. 빼먹으면 그 카드만 시각이 안 보인다 |
 
 작성 규칙:
@@ -428,7 +439,7 @@ python scripts/recent_editions.py --api https://daily.onebitebitcoin.com
   기사와 맞는지 확인한다. 2026-08-19~23 발행 48장 점검 결과 23%가 무관한 그림이었다
   (채굴 카드에 테더 로고, ETF 카드에 채굴기 사진). 고르는 순서는
   `CONTENT_CONTRACT.md` 4.0절 — **기사 본문 실사진 → 같은 기업·인물 실사진 →
-  후보 `image_url` → 핵심 낱말 삽화 → `media: null`**. AI 생성 그림(토큰포스트 본문 그림,
+  후보 `image_url` → 핵심 낱말 삽화**. `media: null` 은 쓰지 않는다. AI 생성 그림(토큰포스트 본문 그림,
   매끈한 3D 렌더, 만화풍 콜라주)은 글자가 멀쩡해도 카드에 쓰지 않는다. 기사 제목을 얹은
   배너, 시리즈 템플릿, 매체 로고뿐인 기본 이미지, 표·인포그래픽처럼 글자가 주인 그림도
   뺀다. 둘 다 기사 실사진이나 핵심 낱말 삽화로 바꾼다.
@@ -438,10 +449,10 @@ python scripts/recent_editions.py --api https://daily.onebitebitcoin.com
   않는다. CryptoSlate 의 AI 콜라주가 자주 걸리니 `og:image` 를 그대로 쓰지 말고
   다음 후보로 넘어간다. 판정 기준은 `CONTENT_CONTRACT.md` 4.0절 "거르는 것".
   섬네일(`meta.og_image`)은 카드 그림과 별도로 5.9절 기준에 따라 매번 직접 고른다.
-- **유튜브 썸네일 주의**: 썸네일은 채널이 만든 마케팅 그래픽이라 숫자가 크게 박혀 있고
-  영상 내용·실제 사실과 어긋나는 경우가 있다. 썸네일에 숫자/단정 문구가 보이면 본문과
-  충돌하지 않는지 확인하고, **충돌하면 그 카드는 `media: null`로 둔다.**
-  (예: 2026-07-31 일본 세제 카드 — 썸네일 "22%" vs 정부안 실제 20% 분리과세)
+- **유튜브 썸네일은 카드에 쓰지 않는다.** 썸네일은 채널이 만든 마케팅 그래픽이라
+  제목·숫자가 크게 박힌 글자 그림이고, 영상 내용과 어긋나기도 한다(2026-07-31 일본 세제
+  카드: 썸네일 "22%" vs 정부안 실제 20% 분리과세). 유튜브 카드는 영상의 핵심 낱말로
+  `find_illustration.py` 삽화를 찾아 붙인다. `push_edition.py` 가 `i.ytimg.com` 그림을 막는다.
 - **숫자가 소스마다 다르면 지어내 맞추지 말고 웹으로 검증**한 뒤 검증된 값을 쓴다.
   `summary`는 my-youtube의 LLM이 생성한 것이라 그 자체가 틀릴 수 있다.
 
@@ -650,9 +661,27 @@ optional 필드라 없으면 예전처럼 슬라이드 12장으로 나간다. �
 붙이면 막대가 거짓말을 한다. `trending` 블록을 뺀 날(후보 10개 미만)은 `trend_rank`도
 모두 뺀다(블록 없이 넣으면 422).
 
-`push_edition.py`는 발행 직전에 이 순서(`pinned` → `trend_rank` 오름차순 → 나머지, 11번째
-이후 카드는 제자리)를 코드로 다시 강제하고 `num`을 새로 매긴다. 그러니 `trend_rank`와
-`pinned`만 정확하면 순서는 어긋나지 않는다.
+**카드 화제성(`heat`)은 모든 뉴스 카드에 넣는다.** `trend_rank` 는 태그 토픽 상위 10개에
+걸린 카드만 받으므로, 트렌딩 상위가 알트·정책 태그로 채워진 날에는 카드 대부분이 막대
+없이 나간다(2026-10-29: 10장 중 2장). 그래서 카드마다 그 사건을 가리키는 검색어를 정해
+24시간 코퍼스에서 직접 센다. 검색어 파일을 만들고 `card_heat.py` 를 돌린다.
+
+```bash
+# drafts/heat-terms-<date>.json — 카드 번호 → 한글·영문 검색어. 지식 한입(11번)은 뺀다.
+# {"1": ["FOMC", "연준", "금리 동결", "Fed"], "2": ["국부펀드", "sovereign wealth"], ...}
+cd backend && source .venv/bin/activate && \
+  python scripts/card_heat.py ../drafts/edition-<date>.json \
+    --terms ../drafts/heat-terms-<date>.json
+```
+
+검색어는 그 카드 사건에만 걸리는 말로 고른다. "비트코인"·"가격"처럼 모든 글에 나오는
+말은 스크립트가 거부한다. 출력에 카드마다 걸린 기사 제목이 찍히니, 엉뚱한 기사가
+걸렸으면 검색어를 좁히고, 0건이면 표기(영문·약어)를 더해 다시 돌린다. 스크립트가
+에디션 파일에 `heat` 를 직접 써 넣는다. 순서를 바꾼 뒤(`num` 이 바뀐 뒤)에 돌린다.
+
+`push_edition.py`는 발행 직전에 이 순서(`pinned` → `trend_rank` 오름차순 → `heat.score`
+내림차순 → 나머지, 11번째 이후 카드는 제자리)를 코드로 다시 강제하고 `num`을 새로
+매긴다. `heat` 가 없는 뉴스 카드가 있으면 발행을 막는다.
 
 순서를 바꿨으면 `num`을 1~10으로 다시 붙이고 draft 에디션을 저장한 뒤 5.5절로
 넘어간다(Q&A와 섬네일이 `num`을 기준으로 붙으므로 이 단계가 먼저다). 마지막 보고에

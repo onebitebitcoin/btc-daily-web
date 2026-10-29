@@ -95,6 +95,18 @@ class QA(_Strict):
     sources: list[str]
 
 
+class CardHeat(_Strict):
+    """카드 사건 하나의 24시간 화제성(scripts/card_heat.py 가 센다).
+
+    score 는 그날 트렌딩 1위 토픽 점수를 100 으로 둔 상대값이라 트렌딩 막대와 같은
+    눈금이다. 1위보다 뜨거운 사건은 100 에서 자른다.
+    """
+
+    score: int = Field(ge=0, le=100)
+    mentions: int = Field(ge=0)
+    sources: int = Field(ge=0)
+
+
 class Card(_Strict):
     num: int
     chip: Chip
@@ -112,6 +124,10 @@ class Card(_Strict):
     # 찾아 그린다 — 두 군데 적으면 카드 막대와 트렌딩 슬라이드 막대가 어긋날 수 있다.
     # 이 필드 없이 나간 과거 발행분이 있으므로 optional 이어야 한다.
     trend_rank: int | None = Field(default=None, ge=1, le=10)
+    # 카드 사건 자체의 화제성. trend_rank 는 태그 토픽 상위 10개에 걸린 카드만 받으므로,
+    # 순위에 안 걸린 카드도 막대를 그릴 수 있게 카드마다 따로 센다.
+    # 이 필드 없이 나간 과거 발행분이 있으므로 optional 이어야 한다.
+    heat: CardHeat | None = None
     # 사용자 지정 뉴스(pinned/<날짜>.md)로 실린 카드. 트렌딩에 안 걸려도 맨 앞에 있는
     # 이유를 카드에 드러낸다.
     pinned: bool | None = None

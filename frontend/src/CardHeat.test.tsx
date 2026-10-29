@@ -61,6 +61,44 @@ describe('카드 화제성 줄', () => {
     expect(container.querySelector('.card-heat .trending-bar-track')).toBeNull();
   });
 
+  it('트렌딩 순위에 안 걸린 카드는 카드 화제성(heat) 막대를 보인다', () => {
+    const heat = { score: 37, mentions: 5, sources: 4 };
+    const { container } = renderSlide(buildCard({ heat }), null);
+
+    expect(screen.getByText('화제성')).toBeTruthy();
+    expect(screen.getByText('4개 매체 · 5건')).toBeTruthy();
+    const fill = container.querySelector<HTMLElement>('.card-heat .trending-bar-fill');
+    expect(fill?.style.width).toBe('37%');
+  });
+
+  it('점수가 아주 낮아도 기사가 걸린 카드는 최소 폭 막대를 그린다', () => {
+    const { container } = renderSlide(
+      buildCard({ heat: { score: 1, mentions: 2, sources: 2 } }),
+      null,
+    );
+
+    const fill = container.querySelector<HTMLElement>('.card-heat .trending-bar-fill');
+    expect(fill?.style.width).toBe('4%');
+  });
+
+  it('한 건도 안 걸린 카드는 빈 막대로 둔다', () => {
+    const { container } = renderSlide(
+      buildCard({ heat: { score: 0, mentions: 0, sources: 0 } }),
+      null,
+    );
+
+    const fill = container.querySelector<HTMLElement>('.card-heat .trending-bar-fill');
+    expect(fill?.style.width).toBe('0%');
+  });
+
+  it('트렌딩 순위가 있으면 카드 heat 보다 트렌딩 토픽 막대를 우선한다', () => {
+    const heat = { score: 37, mentions: 5, sources: 4 };
+    renderSlide(buildCard({ trend_rank: 2, heat }), TREND);
+
+    expect(screen.getByText('TRENDING 2위 · 오픈AI')).toBeTruthy();
+    expect(screen.queryByText('화제성')).toBeNull();
+  });
+
   it('트렌딩에도 안 걸리고 지정 뉴스도 아닌 카드는 줄 자체를 그리지 않는다', () => {
     const { container } = renderSlide(buildCard(), null);
 

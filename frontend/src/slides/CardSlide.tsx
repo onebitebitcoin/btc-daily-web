@@ -67,7 +67,7 @@ export function CardSlide({
             {showsSubtitleInBody(card) && <div className="secondary">{card.subtitle}</div>}
           </div>
 
-          <CardHeat trend={trend} pinned={card.pinned === true} />
+          <CardHeat trend={trend} heat={card.heat ?? null} pinned={card.pinned === true} />
 
           {card.chips && card.chips.length > 0 && (
             <div className="chips-row">
@@ -119,10 +119,29 @@ export function CardSlide({
   );
 }
 
+/** 카드 heat 막대 폭(%). 점수는 트렌딩 1위 = 100 인 눈금이라 매체 두세 곳짜리 사건은
+ *  1~5 점이 나와 막대가 안 보인다(2026-10-29 실측). 기사가 한 건이라도 걸렸으면 최소
+ *  폭을 줘 "집계됐다"는 사실은 보이게 하고, 규모는 옆의 매체·건수로 읽게 한다. */
+const MIN_HEAT_BAR_PERCENT = 4;
+
+function cardHeatWidth(heat: NonNullable<Card['heat']>): number {
+  if (heat.mentions === 0) return 0;
+  return Math.max(heat.score, MIN_HEAT_BAR_PERCENT);
+}
+
 /** 카드 화제성 줄. 트렌딩 슬라이드와 같은 막대를 써서 "이 카드가 그날 얼마나
- *  뜨거웠나"를 같은 눈금으로 읽게 한다. 트렌딩에 안 걸린 카드에 0 막대를 그리면
- *  "안 중요한 소식"처럼 읽히므로, 그런 카드는 줄을 통째로 뺀다. */
-function CardHeat({ trend, pinned }: { trend: TrendingItem | null; pinned: boolean }) {
+ *  뜨거웠나"를 같은 눈금으로 읽게 한다. 트렌딩 순위에 걸린 카드는 토픽 막대를,
+ *  안 걸린 카드는 카드 사건 자체를 센 heat 막대를 그린다. 둘 다 없는 과거 발행분은
+ *  0 막대가 "안 중요한 소식"처럼 읽히므로 줄을 통째로 뺀다. */
+function CardHeat({
+  trend,
+  heat,
+  pinned,
+}: {
+  trend: TrendingItem | null;
+  heat: Card['heat'] | null;
+  pinned: boolean;
+}) {
   if (trend) {
     return (
       <div className="card-heat">
@@ -134,6 +153,21 @@ function CardHeat({ trend, pinned }: { trend: TrendingItem | null; pinned: boole
         </div>
         <div className="trending-bar-track">
           <div className="trending-bar-fill" style={{ width: `${trend.heat}%` }} />
+        </div>
+      </div>
+    );
+  }
+  if (heat) {
+    return (
+      <div className="card-heat">
+        <div className="card-heat-head">
+          <span className="card-heat-label">{pinned ? '지정 뉴스 · 화제성' : '화제성'}</span>
+          <span className="card-heat-meta">
+            {heat.sources}개 매체 · {heat.mentions}건
+          </span>
+        </div>
+        <div className="trending-bar-track">
+          <div className="trending-bar-fill" style={{ width: `${cardHeatWidth(heat)}%` }} />
         </div>
       </div>
     );

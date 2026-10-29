@@ -254,18 +254,18 @@ def og_image_file(
     if cache_path.exists():
         return FileResponse(cache_path, media_type="image/jpeg")
 
-    try:
-        # 위키미디어·flickr 삽화는 httpx 기본 UA 를 403 으로 막는다(2026-10-25 실측) —
-        # 카드 이미지 프록시와 같은 헤더를 쓴다.
-        resp = httpx.get(
-            image_url,
-            timeout=10,
-            follow_redirects=True,
-            headers=imgproxy.SOURCE_REQUEST_HEADERS,
-        )
-        resp.raise_for_status()
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail="failed to fetch source image") from exc
+    # 위키미디어·flickr 삽화는 httpx 기본 UA 를 403 으로 막고, 위키미디어는 원본을
+    # 데이터센터에서 받으면 429 를 준다 — 카드 이미지 프록시와 같은 주소·헤더 규칙을 쓴다.
+    resp: httpx.Response | None = None
+    for target, headers in imgproxy.source_requests(image_url):
+        try:
+            resp = httpx.get(target, timeout=10, follow_redirects=True, headers=headers)
+            resp.raise_for_status()
+            break
+        except httpx.HTTPError:
+            resp = None
+    if resp is None:
+        raise HTTPException(status_code=502, detail="failed to fetch source image")
 
     jpeg_bytes = og_image_bytes_to_jpeg(resp.content)
     cache_path.parent.mkdir(parents=True, exist_ok=True)

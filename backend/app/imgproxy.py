@@ -13,6 +13,8 @@
 
 import hashlib
 import io
+import re
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -53,6 +55,46 @@ SOURCE_REQUEST_HEADERS = {
     "User-Agent": BROWSER_UA,
     "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
 }
+
+# 위키미디어는 반대로 브라우저 위장 UA 를 싫어한다. 데이터센터 IP 에서 위장 UA 로
+# 원본을 받으면 429 를 연달아 준다(2026-10-29 발행: 서버에서만 429, 로컬은 200 —
+# 삽화 6장 중 4장을 못 받아 글자판 카드로 나갔다). 정책(User-Agent policy)대로
+# 누가 보내는지 밝히는 UA 를 쓰고, 수 MB 짜리 원본 대신 썸네일 크기를 받는다.
+WIKIMEDIA_HOST = "upload.wikimedia.org"
+WIKIMEDIA_REQUEST_HEADERS = {
+    "User-Agent": "daily-cardnews/1.0 (+https://daily.onebitebitcoin.com) image-proxy",
+    "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+}
+# 위키미디어가 미리 만들어 두는 표준 썸네일 폭 중 하나. 아무 폭이나 요청하면 거절당한다.
+# 카드 최대 폭(800)과 미리보기(1200x630) 양쪽에 충분한 쪽을 고른다.
+WIKIMEDIA_THUMB_WIDTH = 1280
+_WIKIMEDIA_ORIGINAL_RE = re.compile(
+    r"^(https://upload\.wikimedia\.org/wikipedia/[^/]+)/([0-9a-f]/[0-9a-f]{2})/"
+    r"([^/]+\.(?:jpe?g|png|webp))$",
+    re.IGNORECASE,
+)
+
+
+def wikimedia_thumbnail_url(url: str) -> str | None:
+    """위키미디어 원본 주소를 표준 썸네일 주소로 바꾼다. 원본 주소가 아니면 None."""
+    match = _WIKIMEDIA_ORIGINAL_RE.match(url)
+    if match is None:
+        return None
+    base, shard, name = match.groups()
+    return f"{base}/thumb/{shard}/{name}/{WIKIMEDIA_THUMB_WIDTH}px-{name}"
+
+
+def source_requests(url: str) -> list[tuple[str, dict[str, str]]]:
+    """원본을 받을 때 차례로 시도할 (주소, 헤더) 목록.
+
+    위키미디어는 썸네일을 먼저 시도하고, 원본이 썸네일 폭보다 좁아 썸네일이 없으면
+    원본으로 내려간다. 나머지 호스트는 원본 하나뿐이다.
+    """
+    if urllib.parse.urlparse(url).netloc.lower() != WIKIMEDIA_HOST:
+        return [(url, SOURCE_REQUEST_HEADERS)]
+    thumb = wikimedia_thumbnail_url(url)
+    attempts = [(thumb, WIKIMEDIA_REQUEST_HEADERS)] if thumb else []
+    return [*attempts, (url, WIKIMEDIA_REQUEST_HEADERS)]
 
 
 class ImageTooLargeError(Exception):
@@ -95,13 +137,24 @@ def cache_path(cache_dir: str, date_iso: str, num: int, width: int, url: str) ->
 
 
 def fetch_source(url: str) -> bytes:
-    """원격 원본을 상한을 지키며 받아온다."""
+    """원격 원본을 상한을 지키며 받아온다. 대체 주소가 있으면 차례로 시도한다."""
+    attempts = source_requests(url)
+    for target, headers in attempts[:-1]:
+        try:
+            return _fetch_capped(target, headers)
+        except httpx.HTTPStatusError:
+            continue
+    target, headers = attempts[-1]
+    return _fetch_capped(target, headers)
+
+
+def _fetch_capped(url: str, headers: dict[str, str]) -> bytes:
     with httpx.stream(
         "GET",
         url,
         timeout=FETCH_TIMEOUT_SECONDS,
         follow_redirects=True,
-        headers=SOURCE_REQUEST_HEADERS,
+        headers=headers,
     ) as resp:
         resp.raise_for_status()
         declared = resp.headers.get("content-length")

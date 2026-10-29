@@ -45,6 +45,9 @@ export interface Card {
   qa?: { question: string; answer: string; sources: string[] }[] | null;
   /** 이 카드 사건이 걸린 24시간 트렌딩 최고 순위(1~10). 토픽·heat 는 trending 에서 찾는다(cardTrend). */
   trend_rank?: number | null;
+  /** 카드 사건 자체의 24시간 화제성(card_heat.py). score 는 트렌딩 1위 = 100 인 같은 눈금이다.
+   *  트렌딩 순위에 안 걸린 카드도 이 값으로 막대를 그린다. */
+  heat?: { score: number; mentions: number; sources: number } | null;
   /** 사용자 지정 뉴스로 실린 카드. */
   pinned?: boolean | null;
   // 링크한 기사가 나온 시각(ISO). 카드에 "N시간 전"으로 표시한다.

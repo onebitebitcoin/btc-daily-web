@@ -1249,6 +1249,33 @@ def trending_pool_tweets(
     return fresh
 
 
+# card_heat.py 가 카드별 화제성을 셀 때 필요한 필드만 남긴다. 원본을 다 실으면
+# 트윗 본문·원문 HTML 까지 들어가 draft 가 수 MB 로 불어난다.
+_POOL_FIELDS = {
+    "news": ("title", "summary", "tags", "source_ref", "published_at", "url"),
+    "videos": ("title", "channel_title", "published_at", "view_count"),
+    "tweets": ("title", "summary", "text", "tags", "time", "crawled_at"),
+}
+
+
+def trending_pool(
+    news: list[dict[str, Any]],
+    videos: list[dict[str, Any]],
+    tweets: list[dict[str, Any]],
+    window_end_utc: datetime.datetime,
+) -> dict[str, Any]:
+    """트렌딩 집계에 쓴 24시간 코퍼스 — 발행 직전 카드 화제성(card_heat.py)을 같은
+    코퍼스·같은 기준 시각(최근성 가중)으로 재기 위해 draft 에 남긴다."""
+    pools = {"news": news, "videos": videos, "tweets": tweets}
+    return {
+        "window_end": window_end_utc.isoformat(),
+        **{
+            kind: [{f: item.get(f) for f in _POOL_FIELDS[kind] if item.get(f)} for item in items]
+            for kind, items in pools.items()
+        },
+    }
+
+
 def corpus_summary(
     news: list[dict[str, Any]],
     videos: list[dict[str, Any]],
@@ -1650,6 +1677,9 @@ def main(argv: list[str] | None = None, client: httpx.Client | None = None) -> P
                 "candidates": {"news": news, "videos": videos},
                 "trending_candidates": trending_candidates,
                 "trending_corpus": trending_corpus,
+                "trending_pool": trending_pool(
+                    trending_news, trending_videos, trending_tweets, window_end_utc
+                ),
             },
             ensure_ascii=False,
             indent=2,

@@ -131,3 +131,58 @@ def test_write_cache_creates_parents_and_leaves_no_tmp_file(tmp_path) -> None:
 
     assert target.read_bytes() == b"payload"
     assert list(target.parent.glob("*.tmp")) == []
+
+
+# ---- source_requests (위키미디어 썸네일·식별 UA) ----
+
+WIKIMEDIA_ORIGINAL = (
+    "https://upload.wikimedia.org/wikipedia/commons/3/32/Googleplex_HQ_%28cropped%29.jpg"
+)
+
+
+def test_wikimedia_original_is_fetched_as_thumbnail_first_with_identifying_ua() -> None:
+    """원본을 데이터센터에서 위장 UA 로 받으면 429 가 난다(2026-10-29 발행 사고)."""
+    attempts = imgproxy.source_requests(WIKIMEDIA_ORIGINAL)
+
+    assert [url for url, _ in attempts] == [
+        "https://upload.wikimedia.org/wikipedia/commons/thumb/3/32/"
+        "Googleplex_HQ_%28cropped%29.jpg/1280px-Googleplex_HQ_%28cropped%29.jpg",
+        WIKIMEDIA_ORIGINAL,
+    ]
+    assert all("Chrome" not in headers["User-Agent"] for _, headers in attempts)
+
+
+def test_wikimedia_svg_is_not_rewritten_to_thumbnail() -> None:
+    url = "https://upload.wikimedia.org/wikipedia/commons/a/ab/Chart.svg"
+
+    assert [u for u, _ in imgproxy.source_requests(url)] == [url]
+
+
+def test_other_hosts_keep_browser_headers() -> None:
+    url = "https://cdn.example/a.jpg"
+
+    assert imgproxy.source_requests(url) == [(url, imgproxy.SOURCE_REQUEST_HEADERS)]
+
+
+def test_fetch_source_falls_back_to_original_when_thumbnail_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """원본이 썸네일 폭보다 좁으면 썸네일이 없다 — 그때는 원본을 받는다."""
+    import httpx
+
+    tried: list[str] = []
+
+    def fake_fetch(url: str, headers: dict[str, str]) -> bytes:
+        tried.append(url)
+        if "/thumb/" in url:
+            request = httpx.Request("GET", url)
+            raise httpx.HTTPStatusError(
+                "404", request=request, response=httpx.Response(404, request=request)
+            )
+        return b"original"
+
+    monkeypatch.setattr(imgproxy, "_fetch_capped", fake_fetch)
+
+    assert imgproxy.fetch_source(WIKIMEDIA_ORIGINAL) == b"original"
+    assert tried[-1] == WIKIMEDIA_ORIGINAL
+    assert len(tried) == 2
